@@ -1,0 +1,1 @@
+{"type":"module","private":true,"scripts":{"extract":"node tools/extract-assets.mjs","test":"node --test test/"}}

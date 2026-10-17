@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syndicate Remake</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #8a8; font: 12px monospace; }
+  body { display: grid; grid-template-rows: auto 1fr; }
+  #bar { padding: 4px 8px; }
+  #bar select, #bar input { font: inherit; vertical-align: middle; }
+  #bar input[type=range] { width: 70px; }
+  #bar select { background: #000; color: #8a8; border: 1px solid #353; }
+  #wrap { display: grid; place-items: center; min-height: 0; }
+  #screen { width: min(100vw, calc((100vh - 24px) * 640 / 400)); aspect-ratio: 640 / 400; image-rendering: pixelated; outline: none; cursor: crosshair; }
+</style>
+</head>
+<body>
+<div id="bar">Syndicate Remake · <span id="status">iniciando…</span> · 1–4 agente · 0 grupo · clic izq. mover/recoger · clic der. disparar · panel: barras e inventario · P pausa · Esc×2 abandonar</div>
+<div id="wrap"><canvas id="screen" width="640" height="400" tabindex="0"></canvas></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
