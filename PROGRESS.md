@@ -255,12 +255,23 @@ Implementado (`src/systems/vehicles.js` `VehicleUpdate`, `src/entities/entity.js
 
 Verificado: 87 pruebas (`npm test`), entre ellas un coche de GAME02 tiroteado con la MINI-GUN que explota, arde 101 ciclos y queda en chatarra, y el tren de GAME03; simulación de 600 ciclos en los 50 niveles sin errores (los vagones se mueven).
 
+## Español ✅
+- Traducción propia [DIS] en `src/i18n/`: 202 textos cortos (menús, etiquetas, mejoras, armas, territorios, subtítulos de la intro), los briefings de las 50 misiones con sus mismas secciones de INFO y los textos propios del remake (pausa, fin de misión…).
+- Se añade al cargar como cuarto idioma (`es`) y se elige en la barra superior.
+- Los acentos van a CP437; las mayúsculas sin acento, como el francés del original, salvo la Ñ. En el panel de la misión (HFNT01, solo ASCII) se quitan los acentos.
+- Verificado: pruebas de cobertura (ningún texto sin traducir) y de estructura de los briefings; en el navegador, MAIN MENU y el briefing de la misión 1.
+
+## Corrección del render: rampas y coches ✅
+- El render pintaba casilla a casilla e intercalaba cada entidad con los bloques de su columna. Por eso, en las rampas la entidad quedaba tapada por bloques de su propia casilla o los tapaba ella, y los coches (más grandes que una casilla) quedaban cortados por las casillas vecinas.
+- Ahora sigue el orden del original (`0x1d450`): todo el mapa, luego las entidades por x+y y, tras cada una, los bloques que tiene delante repintados sobre su rectángulo (`src/render/occlusion.js`).
+- Verificado: pruebas de la regla (rampa, coche, suelo, techo) y en el navegador (agente en una rampa de GAME02, coches circulando y pasando detrás de una torre). Coste: 1,9 ms por fotograma.
+
 ## Diferencias conocidas
 - **Quién conduce:** solo el conductor mueve el vehículo ([DIS], SPEC §15.1).
 - **Explosión de vehículos:** la onda se aplica en el mismo ciclo y se crea una sola llama (el original llena el pool de efectos con llamas en el mismo punto); el efecto es el mismo ([DIS], SPEC §7.4). El significado de los bits `0x108` y del contador de daños `0x60af0` sigue abierto.
 - **Atascos:** un conductor que no es agente se para ante un peatón en la calzada, como en el original; los civiles quietos sobre un paso de cebra bloquean el tráfico.
 - **Seguidores y vehículos:** el estado 0x1E (seguir) no sube al vehículo del líder ([DES] `0x33370`).
-- **Orden de pintado:** es aproximado; puede haber solapes incorrectos en bordes de edificios.
+- **Oclusión:** se sigue el esquema del original (mapa, entidades por x+y y bloques de delante repintados encima, `0x1d450`), pero el criterio de «delante» es una regla de cajas propia en lugar de las rutinas por subtile de `0x43933` ([DIS], SPEC §5.5).
 - **Provisionales [DIS]:** ver SPEC §15.1 (seguir, huir, recoger, alcance del persuasor, abertura de la escopeta, caza enemiga).
 - **Paso entre personas:** sin colisión entre ellas al andar.
 - **Cámara inicial:** distinta de la del original.

@@ -11,8 +11,11 @@ const MOODS = [[0x2f, 'veryHappy'], [0x5f, 'happy'], [0xa0, 'content'], [0xd1, '
 export class MapScene extends MenuScreen {
   constructor(game) {
     super(game, { anim: 'mmap', out: 'mmapout' });
-    this.selected = game.campaign.territories.current;
   }
+
+  /** Territorio elegido (`0x55030`), que se conserva entre visitas al mapa. */
+  get selected() { return this.campaign.mapSelection; }
+  set selected(i) { this.campaign.mapSelection = i; }
 
   get territories() { return this.campaign.territories; }
   color(syndicate) { return this.game.assets.ui.syndicateColors[this.campaign.colourOf(syndicate)] ?? 0; }
@@ -44,15 +47,15 @@ export class MapScene extends MenuScreen {
     }
     for (const [i, t] of list.entries()) if (t.rebel) this.paint(vga, i, blink ? 0 : this.color(PLAYER));
 
-    // Etiqueta del territorio elegido: línea animada, marco y mini‑logo del propietario.
+    this.drawLogo(vga);
+    this.drawClock(vga);
+    this.drawInfo(vga, sel);
+    // Etiqueta del territorio elegido (`0x27e00`): línea animada, marco y el mini‑logo de la
+    // compañía del jugador (MMINLOGO con su logo y su color, `0x186f0`), encima del logo grande.
     const lp = sel.info.labelPos, r = sel.info.rect;
     vga.line((lp.x + 8) * 2, (lp.y + 8) * 2, r.x + r.w, r.y + r.h, 0x58, { b: 0xfc, phase: -this.frame });
     vga.frame((lp.x - 1) * 2, (lp.y - 1) * 2, (lp.x + 16) * 2, (lp.y + 16) * 2, 0xfc);
-    vga.mask(this.game.assets.miniLogos, sel.owner * MINI * MINI, MINI, MINI, lp.x, lp.y, this.color(sel.owner), 0);
-
-    this.drawInfo(vga, sel);
-    this.drawClock(vga);
-    this.drawLogo(vga);
+    vga.mask(this.game.assets.miniLogos, c.logo * MINI * MINI, MINI, MINI, lp.x, lp.y, this.color(PLAYER), 0);
     if (c.eligible(this.selected)) this.button(vga, 'brief', 0x10, 0x15a, 0x92, 0x174);
     this.button(vga, 'menu', 500, 0x15a, 0x274, 0x174);
   }

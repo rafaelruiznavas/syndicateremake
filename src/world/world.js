@@ -54,6 +54,7 @@ export class World {
     this.detours = new Detours(this);
     this.entities = []; this.people = []; this.statics = []; this.items = []; this.vehicles = []; this.effects = [];
     this.selection = new Set();
+    this.cheats = { invulnerable: false };    // [DIS] trucos del remake (?cheat en la URL)
     this.groupSelected = false;
     this.leader = null;
     this.cycles = 0;
@@ -211,6 +212,9 @@ export class World {
   }
 
   get playerColor() { return 0; }
+
+  /** Truco [DIS]: los agentes de la escuadra no reciben daño. */
+  invulnerable(p) { return this.cheats.invulnerable && p.isPlayerSquad === true; }
 
   /** Reteñido de los sprites de los agentes por sindicato (SPEC §5.4). */
   recolorFor(e) {

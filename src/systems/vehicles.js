@@ -198,7 +198,7 @@ export function areaEvent(world, x, y, z, [w, d, h], bits, source = null, exclud
   for (const e of world.grid.query(x - hw - reach, y - hd - reach, x + hw + reach, y + hd + reach)) {
     if (e === exclude || e.hidden) continue;
     const ext = e instanceof Person ? 0x20 : e instanceof Vehicle ? 0x80 : -1;
-    if (ext < 0 || (e instanceof Person && e.corpse)) continue;
+    if (ext < 0 || (e instanceof Person && (e.corpse || world.invulnerable?.(e)))) continue;
     if (Math.abs(e.x - x) > hw + ext || Math.abs(e.y - y) > hd + ext) continue;
     if (z > e.z + 0x100 || e.z > z + h) continue;
     e.events |= bits;

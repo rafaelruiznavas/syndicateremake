@@ -1,9 +1,10 @@
-// Opciones del remake [DIS] (SPEC §15.1): idioma de los textos originales (en/fr/it) y
+// Opciones del remake [DIS] (SPEC §15.1): idioma (textos originales en/fr/it y traducción
+// propia al español) y
 // volúmenes de música y efectos. En el original se fijaban en la instalación; aquí van en
 // un panel bajo el lienzo y se guardan en localStorage.
 
 const KEY = 'syndicate-remake.options';
-export const LANGUAGES = Object.freeze({ en: 'English', fr: 'Français', it: 'Italiano' });
+export const LANGUAGES = Object.freeze({ en: 'English', fr: 'Français', it: 'Italiano', es: 'Español' });
 export const DEFAULT_OPTIONS = Object.freeze({ lang: 'en', music: 0.6, sfx: 1 });
 
 /** Opciones guardadas, con los valores por defecto para lo que falte o no sea válido. */

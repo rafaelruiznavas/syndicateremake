@@ -11,6 +11,9 @@
   #bar select, #bar input { font: inherit; vertical-align: middle; }
   #bar input[type=range] { width: 70px; }
   #bar select { background: #000; color: #8a8; border: 1px solid #353; }
+  #bar details.cheats { display: inline-block; position: relative; }
+  #bar details.cheats summary { cursor: pointer; color: #cc6; }
+  #bar details.cheats[open] label { position: absolute; z-index: 1; white-space: nowrap; background: #000; border: 1px solid #353; padding: 4px 8px; }
   #wrap { display: grid; place-items: center; min-height: 0; }
   #screen { width: min(100vw, calc((100vh - 24px) * 640 / 400)); aspect-ratio: 640 / 400; image-rendering: pixelated; outline: none; cursor: crosshair; }
 </style>

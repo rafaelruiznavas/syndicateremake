@@ -12,6 +12,7 @@ import { Vehicle } from '../entities/entity.js';
 import { MissionStatus } from '../systems/objectives.js';
 import { PANEL_WIDTH, SCREEN_WIDTH, SCREEN_HEIGHT } from '../core/constants.js';
 import { lineOfFire } from '../systems/perception.js';
+import { remakeText } from '../i18n/es-ui.js';
 
 const SCROLL_STEP = 64;       // [DIS] u de cámara por fotograma al desplazar
 const EDGE = 6;               // px del borde que activan el desplazamiento
@@ -69,6 +70,7 @@ export class MissionScene {
       tileClasses: a.tileClasses, weapons: a.weapons, animator, roster, research,
       enemyWeapons: a.enemyWeapons, armedTable: a.weaponArmed,
     });
+    if (this.game.cheats) this.world.cheats = this.game.cheats;   // compartido: el menú actúa en vivo
     this.hud = new Hud(this.ctx, this.world.weapons, this.renderer, new MissionFont(a.missionFontData), a.weapons.map((w) => w.name[this.game.lang ?? 'en']));
     this.renderer.setGraphics(a.graphicsFor(a.paletteForMission(mission)));
     const lead = this.world.squad[0];
@@ -178,6 +180,7 @@ export class MissionScene {
     this.scroll();
     if (this.escArmed > 0) this.escArmed--;
     this.renderer.render(this.world, this.camera);
+    this.hud.lang = this.game.lang;
     const m = this.input.mouse, hit = this.hud.hit(m.x, m.y);
     const under = m.x >= PANEL_WIDTH ? this.entityAt(m.x, m.y) : null;
     const groundItem = under && !(under instanceof Person) && !(under instanceof Vehicle) ? under : null;
@@ -185,15 +188,15 @@ export class MissionScene {
     const g = this.ctx, o = this.world.objectives;
     g.font = 'bold 14px monospace'; g.textAlign = 'center';
     const cx = (PANEL_WIDTH + SCREEN_WIDTH) / 2;
-    if (this.loop.paused) { g.fillStyle = '#ff0'; g.fillText('PAUSED', cx, 200); }
-    if (this.escArmed > 0 && o.running) { g.fillStyle = '#fc0'; g.fillText('ESC otra vez para abandonar', cx, 24); }
+    if (this.loop.paused) { g.fillStyle = '#ff0'; g.fillText(remakeText('paused', this.game.lang), cx, 200); }
+    if (this.escArmed > 0 && o.running) { g.fillStyle = '#fc0'; g.fillText(remakeText('escAgain', this.game.lang), cx, 24); }
     if (!o.running) {
-      const text = { [MissionStatus.COMPLETED]: 'MISSION COMPLETE', [MissionStatus.FAILED]: 'MISSION FAILED', [MissionStatus.WITHDRAWN]: 'WITHDREW FROM MISSION' }[o.status];
+      const text = remakeText({ [MissionStatus.COMPLETED]: 'missionComplete', [MissionStatus.FAILED]: 'missionFailed', [MissionStatus.WITHDRAWN]: 'withdrew' }[o.status], this.game.lang);
       g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(PANEL_WIDTH, 170, SCREEN_WIDTH - PANEL_WIDTH, 60);
       g.fillStyle = o.status === MissionStatus.COMPLETED ? '#6f6' : '#f66'; g.fillText(text, cx, 200);
       const s = this.world.stats;
       g.font = '10px monospace'; g.fillStyle = '#ccc';
-      g.fillText(`Agentes enemigos ${s.enemyAgents} · Civiles ${s.civilians} · Policía ${s.police} · Guardias ${s.guards} · Precisión ${s.shots ? Math.floor((s.hits * 100) / s.shots) + '%' : '—'}`, cx, 218);
+      g.fillText(remakeText('stats', this.game.lang, { a: s.enemyAgents, c: s.civilians, p: s.police, g: s.guards, h: s.shots ? Math.floor((s.hits * 100) / s.shots) + '%' : '—' }), cx, 218);
     }
     g.textAlign = 'start';
     if (m.inside) this.drawCursor(this.cursorAt(m.x, m.y, under), m.x, m.y);

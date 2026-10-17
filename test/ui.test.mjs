@@ -111,3 +111,16 @@ test('MAIN MENU §12.2: la fila bajo el ratón y la opción elegida siguen las f
   for (const y of rowY) menu.click({ y: y + 4 });
   assert.deepEqual(chosen, [1, 2, 3, 4, 5]);
 });
+
+test('Mapa §12.2: empieza en WESTERN EUROPE (`0x55030` = 9) y la elección se conserva entre visitas', async () => {
+  const { Campaign } = await import('../src/campaign/campaign.js');
+  const { MapScene } = await import('../src/scenes/map.js');
+  const data = { weapons: [{}, { maxAmmo: 13 }], mods: [], territories: [], briefings: {} };
+  const campaign = new Campaign(data);
+  assert.equal(campaign.mapSelection, 9);
+  const game = { campaign, vga: {}, menuGfx: {}, input: { mouse: { x: 0, y: 0 } } };
+  const first = new MapScene(game);
+  assert.equal(first.selected, 9);
+  first.selected = 29;
+  assert.equal(new MapScene(game).selected, 29, 'otra visita al mapa conserva la elección');
+});

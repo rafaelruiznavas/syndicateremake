@@ -1,6 +1,8 @@
 // Carga de recursos extraídos (assets/). Los atlas PNG son indexados (R = índice de
 // paleta, A = 0 transparente); aquí se recolorean con la paleta de la misión.
 
+import { addSpanish } from '../i18n/spanish.js';
+
 async function loadJson(base, path) {
   const r = await fetch(`${base}/${path}`);
   if (!r.ok) throw new Error(`No se pudo cargar ${path} (¿has ejecutado tools/extract-assets.mjs?)`);
@@ -37,6 +39,7 @@ export function colorize(indexed, palette) {
   return c;
 }
 
+
 export class Assets {
   constructor(base = 'assets') { this.base = base; this.cache = new Map(); }
 
@@ -61,6 +64,7 @@ export class Assets {
       loadBinary(b, 'gfx/mconscr.bin'),
     ]);
     this.flics = new Map();
+    addSpanish(this);                // cuarto idioma [DIS] (src/i18n)
   }
 
   /** Animación FLIC por nombre (mmap, mbrief…); se cachea el fichero. */

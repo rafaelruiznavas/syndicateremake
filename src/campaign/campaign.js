@@ -14,6 +14,7 @@ export const START_FUNDS = 30000;
 export const CHEAT_FUNDS = 100_000_000;
 const KILL_POPULATION_PENALTY = 100;
 const SYNDICATES = 8;
+const INITIAL_MAP_SELECTION = 9;
 const PERSUADED_REWARD = [
   [PersonKind.CIVILIAN, 50], [PersonKind.GUARD, 150], [PersonKind.POLICE, 150], [PersonKind.CRIMINAL, 300],
 ];
@@ -42,6 +43,9 @@ export class Campaign {
     // Color de cada sindicato (`+0x4ab` de cada registro de 0x417 B; al empezar, el i‑ésimo, `0x25a10`).
     this.colours = saved?.colours ?? Array.from({ length: SYNDICATES }, (_, i) => i);
     if (!saved?.colours && saved?.colour !== undefined) this.setColour(saved.colour);
+    // Territorio elegido en el mapa (`0x55030`): solo lo cambia la pantalla del mapa y empieza
+    // en WESTERN EUROPE (valor estático 9). No forma parte de la partida guardada [INF].
+    this.mapSelection = INITIAL_MAP_SELECTION;
     this.companyName = saved?.companyName ?? '';   // `+0x4bf`
     this.playerName = saved?.playerName ?? '';     // `+0x4ad`
   }

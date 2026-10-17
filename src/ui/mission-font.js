@@ -2,6 +2,8 @@
 // desplazamiento vertical; 0xFFFF = sin glifo) y bitmaps de 1 bpp: una fila por byte si el
 // ancho es < 8 y por palabra de 16 bits little‑endian si es ≥ 8; el bit alto es el píxel izquierdo.
 
+import { foldToAscii } from '../i18n/charset.js';
+
 export class MissionFont {
   /** @param {Uint8Array} data HFNT01 descomprimido */
   constructor(data) {
@@ -18,12 +20,12 @@ export class MissionFont {
     }
   }
 
-  width(str) { let w = 0; for (const ch of str) w += (this.glyphs[ch.charCodeAt(0) & 127]?.w ?? 0) + 1; return w; }
+  width(str) { let w = 0; for (const ch of foldToAscii(str)) w += (this.glyphs[ch.charCodeAt(0) & 127]?.w ?? 0) + 1; return w; }
 
   /** Dibuja en un contexto 2D con el color CSS dado; (x, y) es la esquina superior. */
   draw(ctx, str, x, y, color) {
     ctx.fillStyle = color;
-    for (const ch of str) {
+    for (const ch of foldToAscii(str)) {   // HFNT01 solo tiene ASCII: se quitan los acentos
       const g = this.glyphs[ch.charCodeAt(0) & 127];
       if (!g) continue;
       if (g.bits) for (let yy = 0; yy < g.h; yy++) for (let xx = 0; xx < g.w; xx++) if (g.bits[yy * g.w + xx]) ctx.fillRect(x + xx, y + g.dy + yy, 1, 1);

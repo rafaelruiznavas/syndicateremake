@@ -5,6 +5,7 @@
 import { MenuScreen } from './menu-screen.js';
 import { MenuGfx } from '../ui/menu-gfx.js';
 import { Bank } from '../audio/audio.js';
+import { remakeText } from '../i18n/es-ui.js';
 
 const SUBTITLE = { baseline: 0x17c, bandTop: 0x168, space: 8 };
 
@@ -14,7 +15,7 @@ export class StartScene {
     const g = this.game.ctx;
     g.fillStyle = '#000'; g.fillRect(0, 0, 640, 400);
     g.fillStyle = '#8c8'; g.font = '16px monospace'; g.textAlign = 'center';
-    g.fillText('CLICK TO START', 320, 200);
+    g.fillText(remakeText('clickToStart', this.game.lang), 320, 200);
     g.textAlign = 'start';
   }
   onClick() { this.start(); }

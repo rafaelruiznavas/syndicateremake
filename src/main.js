@@ -15,6 +15,7 @@ import { LoadSaveScene } from './scenes/loadsave.js';
 import { StartScene, IntroScene } from './scenes/intro.js';
 import { ConfigureScene } from './scenes/configure.js';
 import { mountOptions } from './ui/options.js';
+import { mountCheats } from './ui/cheats.js';
 
 const canvas = document.getElementById('screen');
 const ctx = canvas.getContext('2d');
@@ -29,6 +30,7 @@ async function boot() {
   const loop = new GameLoop({ update: () => game.update(), render: () => game.render() });
   const game = new Game({ assets, ctx, input, loop });
   mountOptions(document.getElementById('bar'), game);
+  mountCheats(document.getElementById('bar'), game);
   game.register('start', (g) => new StartScene(g));
   game.register('intro', (g) => new IntroScene(g));
   game.register('title', (g) => new TitleScene(g));

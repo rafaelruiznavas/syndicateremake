@@ -20,6 +20,7 @@ export class Game {
     this.campaign = null;
     this.factories = {};
     this.audio = new AudioEngine(assets.base);
+    this.cheats = { invulnerable: false };   // [DIS] trucos del remake; los cambia src/ui/cheats.js
     this.music = new MusicPlayer(this.audio, assets.base);
     // El audio del navegador solo arranca tras un gesto del usuario.
     input.onClick((e) => { this.audio.unlock(); this.scene?.onClick?.(e); });

@@ -4,6 +4,7 @@
 
 import { PANEL_WIDTH, SCREEN_HEIGHT } from '../core/constants.js';
 import { Scanner, SCANNER, BLIP_ROWS, circlePoints } from './scanner.js';
+import { remakeText } from '../i18n/es-ui.js';
 
 export { SCANNER };
 
@@ -28,6 +29,7 @@ export class Hud {
     this.ctx = ctx; this.weapons = weapons; this.renderer = renderer; this.font = font; this.names = names;
     this.frame = 0;
     this.scanner = new Scanner();
+    this.lang = 'en';
   }
 
   color(i) { const c = this.renderer.gfx.palette[i] ?? [0, 0, 0]; return `rgb(${c[0]},${c[1]},${c[2]})`; }
@@ -136,7 +138,7 @@ export class Hud {
   renderMessage(world, hoverItem) {
     let text = '';
     if (hoverItem) text = this.names?.[hoverItem.weapon - 1] ?? '';
-    else if (!world.objectives.running && (this.frame & 0x10)) text = world.objectives.status === 2 ? 'MISSION COMPLETE' : 'MISSION FAILED';
+    else if (!world.objectives.running && (this.frame & 0x10)) text = remakeText(world.objectives.status === 2 ? 'missionComplete' : 'missionFailed', this.lang);
     if (text && this.font) this.font.draw(this.ctx, text.slice(0, MESSAGE.chars), MESSAGE.x + 2, MESSAGE.y, this.color(14));
   }
 }

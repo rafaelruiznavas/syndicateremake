@@ -194,6 +194,16 @@ Tablas por arma (20 entradas): PARADO `0x5a546` / ANDAR `0x5a56e` / DISPARO `0x5
 
 ---
 
+### 5.5 Orden de pintado y oclusión
+
+[OBS] REA (`0x1d450`, `0x43806`, `0x43933`).
+
+1. Se pinta el mapa entero (de atrás adelante).
+2. Se recogen las entidades visibles de las casillas de la vista y se ordenan (burbuja) por la clave `x + y`. Los estáticos de los subtipos 10, 0x12–0x15 y 0x20–0x25 usan `(x − 0x80) + (y − 0x80)`, así que se pintan antes.
+3. Por cada entidad: se pinta su frame (con el reteñido de los agentes, §5.4) y se calcula el rectángulo que cubren sus elementos. Después (`0x43806`), si la entidad no tiene `+0x0a & 2` y la casilla de su posición no es un tile especial (3 o 4), se vuelven a pintar sobre ese rectángulo, por franjas de 16 px, los subtiles del mapa que quedan delante de ella. `0x43933` elige la variante según el triángulo de la casilla en el que está la entidad (`(x & 0xff) + (y & 0xff) > 0xff` y `(y & 0xff) ≤ (x & 0xff)`).
+
+[DIS] `0x43933` es ensamblador con tablas de saltos por subtile; el remake usa una regla de cajas equivalente: un bloque se vuelve a pintar sobre la entidad si está por completo más cerca del observador en algún eje (más x, más y o más z que la caja de la entidad) y la entidad no lo está en ninguno. Cajas: personas ±0x20 y 0x100 de alto; vehículos ±0x80 y 0xC0; estáticos ±0x40 y 0x200; el resto ±0x20 y 0x80. Así, el bloque de una rampa que se pisa nunca tapa a quien está encima, y un coche no queda cortado por las casillas vecinas que invade.
+
 ## 6. Combate
 
 ### 6.1 Armas (tipos 1–19)
@@ -1007,7 +1017,9 @@ Coordenadas en el espacio de 640×400. [OBS] Funciones citadas.
   - su nombre centrado en (0xb8 … 0x1d0, 0x13a);
   - una línea discontinua animada desde la etiqueta `(etiqueta + 8)·2` hasta el centro del rectángulo, en colores 0x58/0xfc;
   - un recuadro alrededor de la etiqueta, en color 0xfc;
-  - el mini‑logo del propietario (MMINLOGO, 16×16) sobre la etiqueta;
+  - el mini‑logo **de la compañía del jugador** (MMINLOGO de 16×16 con su logo y su color, `0x186f0`), sea quien sea el propietario; se dibuja encima del logo grande;
+- el territorio elegido es una variable propia (`0x55030`) que solo cambia esta pantalla: empieza en 9 (WESTERN EUROPE, valor estático) y se conserva entre visitas; un clic fuera de los territorios no la cambia (`0x28490` devuelve 0x32) [OBS];
+- el bucle (`0x27e00`): clic → territorio bajo el ratón, luego BRIEF (si es elegible) o MENU, luego −/+ del impuesto (±1; con el botón derecho, ±10); Intro equivale a BRIEF y Esc a MENU; cada día que pasa se repintan los territorios que han cambiado de dueño;
 - datos a la derecha:
   - POP en (0xc2/0x10c, 0x14e);
   - TAX en (0xc2, 0x15c), con botones −/+ en 0x176 y 0x1b4 y sprites `0x42/6` y `0x48/6`;
@@ -1372,7 +1384,8 @@ Valores elegidos para huecos que aún no se han documentado. Se sustituirán cua
 | ~~Destino de grupo~~ | Resuelto: reparto 2×2 en la casilla (§11) | — |
 | Quién conduce | En el original, cualquier ocupante en estado 2/3 llama a `0x37110` sobre el vehículo; el remake solo deja conducir al conductor, para que un grupo dentro de un coche no lo mueva varias veces por ciclo | comprobar en el original con varios agentes dentro |
 | Vehículos destruidos y trenes | Los vehículos no reciben daño y los vagones (9, 10) no se mueven | rutina de actualización de vehículos (no localizada) |
-| Opciones de idioma y volumen | El original fija el idioma y el volumen en la instalación (SETUP); el remake ofrece un panel bajo el lienzo con idioma (en/fr/it, textos originales), volumen de música y de efectos, guardado en localStorage | — |
+| Opciones de idioma y volumen | El original fija el idioma y el volumen en la instalación (SETUP); el remake ofrece un panel bajo el lienzo con idioma (en/fr/it con los textos originales, y **español**, traducción propia del remake en `src/i18n/`), volumen de música y de efectos, guardado en localStorage. El español se añade al cargar como clave `es` de cada texto `{en, fr, it}` y de cada briefing (mismas secciones «|» de INFO). Los acentos se convierten a CP437 para las fuentes; como en los textos franceses del original, las mayúsculas van sin acento (los glifos acentuados tienen forma de minúscula), salvo la Ñ (0xA5); HFNT01, sin glifos acentuados, recibe la letra sin acento | — |
+| Trucos | Solo con el parámetro `cheat` en la URL aparece un menú «Trucos» en la barra superior. «Agentes invulnerables» hace que los agentes de la escuadra ignoren balas, explosiones, fuego, atropellos, el daño de las reacciones y el suelo mortal (clase 10). Se aplica en vivo y no se guarda | — |
 
 ---
 

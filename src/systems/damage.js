@@ -31,7 +31,7 @@ export class Damage {
       if (!(e instanceof Person) || e === shooter || e.hidden || e.corpse) continue;
       if (Math.abs(e.x - x) > half + 0x20 || Math.abs(e.y - y) > half + 0x20) continue;
       if (base > e.z + 0x100 || e.z > base + 0x100) continue;
-      if (this.shielded(e)) { last = e; continue; }
+      if (this.shielded(e) || world.invulnerable?.(e)) { last = e; continue; }
       if (!this.admits(world, e)) continue;
       e.health -= 1;
       e.events |= Ev.BULLET;
@@ -68,7 +68,8 @@ export class Damage {
   }
 
   /** Aplica el daño del manejador del estado de reacción. Devuelve true si la persona muere. */
-  applyReaction(p, state) {
+  applyReaction(p, state, world = null) {
+    if (world?.invulnerable?.(p)) return false;
     const rule = EVENT_DAMAGE[state]?.[resistance(p)];
     if (rule === 'kill') p.health = -1;
     else if (typeof rule === 'number') p.health -= rule;

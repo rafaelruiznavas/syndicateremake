@@ -43,7 +43,7 @@ export class PersonStates {
 
   /** Clase 10 bajo los pies: muerte (SPEC §7.1 punto 1). [DIS] Las rampas que hacen deslizar se omiten. */
   terrainReaction(p) {
-    if (p.state === S.TERRAIN_DEATH || p.dead) return;
+    if (p.state === S.TERRAIN_DEATH || p.dead || this.world.invulnerable?.(p)) return;
     if (this.world.map.classAt(p.x, p.y, p.z - 1) === 10) { p.health = -1; p.state = S.TERRAIN_DEATH; }
   }
 
@@ -173,7 +173,7 @@ export class PersonStates {
     const w = this.world;
     if (!p.reactionApplied) {
       p.reactionApplied = true;
-      const died = w.damage.applyReaction(p, p.state);
+      const died = w.damage.applyReaction(p, p.state, w);
       if (p.state === S.HIT_FIRE) { p.timer = died ? 40 : 2; p.state = S.BURNING; return; }
     }
     if (this.advance(p)) p.state = S.HIT_RECOVER;

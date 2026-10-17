@@ -2,8 +2,10 @@
 // lógico de 640×400 (vista de 512×400 a la derecha del panel).
 
 import { TILE, LEVEL, SCREEN_WIDTH, SCREEN_HEIGHT, PANEL_WIDTH } from '../core/constants.js';
+import { paintKey, entityBox, blockInFront } from './occlusion.js';
 
 const BLOCK_W = 64, BLOCK_H = 48, BLOCK_COLS = 16;
+const OCCLUDE_REACH = 8;       // casillas por delante de la entidad en x e y que pueden taparla
 
 export class Renderer {
   /** @param {CanvasRenderingContext2D} ctx */
@@ -54,10 +56,9 @@ export class Renderer {
   }
 
   /**
-   * Orden de pintado: por diagonales (tx+ty) crecientes; dentro de cada columna, los
-   * bloques por debajo de la entidad, luego la entidad y luego los bloques superiores.
-   * Cada entidad se asigna a la casilla de la esquina delantera de su caja (x+0x20, y+0x20)
-   * para que los suelos que pisa se dibujen antes que ella. [DIS]
+   * Orden de pintado (`0x1d450`, SPEC §5.5): el mapa entero de atrás adelante; después las
+   * entidades ordenadas por x+y y, tras cada una, los bloques que quedan delante de ella,
+   * recortados a su rectángulo en pantalla.
    */
   render(world, camera) {
     const g = this.ctx, map = world.map;
@@ -69,49 +70,87 @@ export class Renderer {
     const corners = [];
     for (const [sx, sy] of [[PANEL_WIDTH, 0], [SCREEN_WIDTH, 0], [PANEL_WIDTH, SCREEN_HEIGHT + 64], [SCREEN_WIDTH, SCREEN_HEIGHT + 64]])
       for (const z of [0, map.depth * LEVEL]) corners.push(camera.unproject(sx, sy, z));
-    const tx0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0])) / TILE) - 1);
-    const tx1 = Math.min(map.width - 1, Math.floor(Math.max(...corners.map((c) => c[0])) / TILE) + 1);
-    const ty0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1])) / TILE) - 1);
-    const ty1 = Math.min(map.height - 1, Math.floor(Math.max(...corners.map((c) => c[1])) / TILE) + 1);
+    const view = {
+      tx0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0])) / TILE) - 1),
+      tx1: Math.min(map.width - 1, Math.floor(Math.max(...corners.map((c) => c[0])) / TILE) + 1),
+      ty0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1])) / TILE) - 1),
+      ty1: Math.min(map.height - 1, Math.floor(Math.max(...corners.map((c) => c[1])) / TILE) + 1),
+    };
 
-    const buckets = new Map();
-    for (const e of world.entities) {
-      if (e.hidden) continue;
-      const tx = (e.x + 0x20) >> 8, ty = (e.y + 0x20) >> 8;
-      if (tx < tx0 || tx > tx1 || ty < ty0 || ty > ty1) continue;
-      const k = ty * map.width + tx;
-      (buckets.get(k) ?? buckets.set(k, []).get(k)).push(e);
+    // 1. El mapa, por diagonales (tx+ty) y de abajo arriba en cada columna.
+    for (let s = view.tx0 + view.ty0; s <= view.tx1 + view.ty1; s++) {
+      for (let tx = Math.max(view.tx0, s - view.ty1); tx <= Math.min(view.tx1, s - view.ty0); tx++) {
+        for (let tz = 0; tz < map.depth; tz++) this.drawMapBlock(map, camera, tx, s - tx, tz);
+      }
     }
 
-    for (let s = tx0 + ty0; s <= tx1 + ty1; s++) {
-      for (let tx = Math.max(tx0, s - ty1); tx <= Math.min(tx1, s - ty0); tx++) {
-        const ty = s - tx;
-        const ents = buckets.get(ty * map.width + tx);
-        if (ents) ents.sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
-        let next = 0;
-        for (let tz = 0; tz < map.depth; tz++) {
-          while (ents && next < ents.length && ents[next].z < tz * LEVEL + LEVEL / 2) this.drawEntity(ents[next++], camera, world);
-          const tile = map.tileAt(tx, ty, tz);
-          if (!tile || this.emptyBlock[tile]) continue;
-          const [px, py] = camera.project(tx * TILE, ty * TILE, (tz + 1) * LEVEL);
-          if (px + 32 < PANEL_WIDTH || px - 32 > SCREEN_WIDTH || py > SCREEN_HEIGHT || py + BLOCK_H < 0) continue;
-          this.drawBlock(tile, px - 32, py);
-        }
-        while (ents && next < ents.length) this.drawEntity(ents[next++], camera, world);
-      }
+    // 2. Las entidades por x+y; cada una, tapada por los bloques que tiene delante.
+    const ents = world.entities.filter((e) => !e.hidden && (e.x >> 8) >= view.tx0 - 2 && (e.x >> 8) <= view.tx1 + 2 && (e.y >> 8) >= view.ty0 - 2 && (e.y >> 8) <= view.ty1 + 2);
+    ents.sort((a, b) => paintKey(a) - paintKey(b) || a.z - b.z);
+    for (const e of ents) {
+      const bounds = this.drawEntity(e, camera, world);
+      if (bounds) this.occlude(e, bounds, map, camera);
     }
     if (this.debug) this.drawDebug(world, camera);
     g.restore();
   }
 
+  drawMapBlock(map, camera, tx, ty, tz) {
+    const tile = map.tileAt(tx, ty, tz);
+    if (!tile || this.emptyBlock[tile]) return;
+    const [px, py] = camera.project(tx * TILE, ty * TILE, (tz + 1) * LEVEL);
+    if (px + 32 < PANEL_WIDTH || px - 32 > SCREEN_WIDTH || py > SCREEN_HEIGHT || py + BLOCK_H < 0) return;
+    this.drawBlock(tile, px - 32, py);
+  }
+
+  /** Vuelve a pintar, recortados al rectángulo de la entidad, los bloques que tiene delante. */
+  occlude(e, [x0, y0, x1, y1], map, camera) {
+    const box = entityBox(e), g = this.ctx;
+    const ex = e.x >> 8, ey = e.y >> 8;
+    let clipped = false;
+    for (let s = ex + ey - 2; s <= ex + ey + OCCLUDE_REACH * 2; s++) {
+      for (let tx = Math.max(0, ex - 2, s - (ey + OCCLUDE_REACH)); tx <= Math.min(map.width - 1, ex + OCCLUDE_REACH, s - (ey - 2)); tx++) {
+        const ty = s - tx;
+        if (ty < 0 || ty >= map.height) continue;
+        for (let tz = 0; tz < map.depth; tz++) {
+          const tile = map.tileAt(tx, ty, tz);
+          if (!tile || this.emptyBlock[tile] || !blockInFront(tx, ty, tz, box)) continue;
+          const [px, py] = camera.project(tx * TILE, ty * TILE, (tz + 1) * LEVEL);
+          if (px + 32 <= x0 || px - 32 >= x1 || py + BLOCK_H <= y0 || py >= y1) continue;
+          if (!clipped) { g.save(); g.beginPath(); g.rect(x0, y0, x1 - x0, y1 - y0); g.clip(); clipped = true; }
+          this.drawBlock(tile, px - 32, py);
+        }
+      }
+    }
+    if (clipped) g.restore();
+  }
+
+  /** Dibuja la entidad y devuelve su rectángulo en pantalla [x0, y0, x1, y1] (o null si no se ve). */
   drawEntity(e, camera, world) {
     const [sx, sy] = camera.project(e.x, e.y, e.z);
-    if (sx < PANEL_WIDTH - 64 || sx > SCREEN_WIDTH + 64 || sy < -64 || sy > SCREEN_HEIGHT + 96) return;
+    if (sx < PANEL_WIDTH - 64 || sx > SCREEN_WIDTH + 64 || sy < -64 || sy > SCREEN_HEIGHT + 96) return null;
     this.drawFrame(e.frame, sx, sy, world.recolorFor(e));
     if (world.selection.has(e)) {
       const g = this.ctx; g.strokeStyle = '#ff0'; g.lineWidth = 1;
       g.beginPath(); g.ellipse(sx, sy, 8, 4, 0, 0, Math.PI * 2); g.stroke();
     }
+    return this.frameBounds(e.frame, sx, sy);
+  }
+
+  /** Rectángulo que cubren los elementos de un frame anclado en (sx, sy). */
+  frameBounds(frameIndex, sx, sy) {
+    const { frames, elements, sprites } = this.sprites, frame = frames[frameIndex];
+    if (!frame) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let el = frame.first, guard = 0; el && guard < 64; guard++) {
+      const elem = elements[el], r = sprites[elem.sprite];
+      if (r) {
+        x0 = Math.min(x0, sx + elem.dx); y0 = Math.min(y0, sy + elem.dy);
+        x1 = Math.max(x1, sx + elem.dx + r.w); y1 = Math.max(y1, sy + elem.dy + r.h);
+      }
+      el = elem.next;
+    }
+    return x0 < x1 ? [x0, y0, x1, y1] : null;
   }
 
   drawDebug(world, camera) {
