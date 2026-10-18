@@ -5,9 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Syndicate Remake</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; color: #8a8; font: 12px monospace; }
-  body { display: grid; grid-template-rows: auto 1fr; }
-  #bar { padding: 4px 8px; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #8a8; font: 12px monospace; }
+  body { display: grid; grid-template-rows: 24px 1fr; grid-template-columns: minmax(0, 1fr); }
+  /* Barra de una sola línea: la ayuda se recorta con «…» (texto completo en el título) y los controles no se encogen. */
+  #bar { display: flex; align-items: center; gap: 0 4px; height: 24px; box-sizing: border-box; padding: 0 8px; white-space: nowrap; }
+  #bar > * { flex: none; }
+  #bar #help { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 1000px) { #bar .name { display: none; } #bar input[type=range] { width: 44px; } }
   #bar select, #bar input { font: inherit; vertical-align: middle; }
   #bar input[type=range] { width: 70px; }
   #bar select { background: #000; color: #8a8; border: 1px solid #353; }
@@ -15,11 +19,11 @@
   #bar details.cheats summary { cursor: pointer; color: #cc6; }
   #bar details.cheats[open] label { position: absolute; z-index: 1; white-space: nowrap; background: #000; border: 1px solid #353; padding: 4px 8px; }
   #wrap { display: grid; place-items: center; min-height: 0; }
-  #screen { width: min(100vw, calc((100vh - 24px) * 640 / 400)); aspect-ratio: 640 / 400; image-rendering: pixelated; outline: none; cursor: crosshair; }
+  #screen { --aspect: 1.6; width: min(100vw, calc((100vh - 24px) * var(--aspect))); aspect-ratio: var(--aspect); image-rendering: pixelated; outline: none; cursor: crosshair; }
 </style>
 </head>
 <body>
-<div id="bar">Syndicate Remake · <span id="status">iniciando…</span> · 1–4 agente · 0 grupo · clic izq. mover/recoger · clic der. disparar · panel: barras e inventario · P pausa · Esc×2 abandonar</div>
+<div id="bar"><span><span class="name">Syndicate Remake · </span><span id="status">iniciando…</span> ·</span><span id="help" title="1–4 agente · 0 grupo · clic izq. mover/recoger · clic der. disparar · panel: barras e inventario · clic der./doble clic en un agente: localizarlo · escáner: ir (izq.) o mirar (der.) · P pausa · Esc×2 abandonar">1–4 agente · 0 grupo · clic izq. mover/recoger · clic der. disparar · panel: barras e inventario · clic der./doble clic en un agente: localizarlo · escáner: ir (izq.) o mirar (der.) · P pausa · Esc×2 abandonar</span></div>
 <div id="wrap"><canvas id="screen" width="640" height="400" tabindex="0"></canvas></div>
 <script type="module" src="src/main.js"></script>
 </body>

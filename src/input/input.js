@@ -1,5 +1,5 @@
 // Entrada: ratón y teclado → acciones de juego. Las coordenadas del ratón se convierten
-// al espacio lógico de 640×400 de la misión.
+// al espacio lógico de la escena activa (640×400, o más ancho en 16:9; ver Game#frame).
 
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../core/constants.js';
 
@@ -8,6 +8,8 @@ export class Input {
   constructor(canvas) {
     this.canvas = canvas;
     this.mouse = { x: 320, y: 200, inside: false };
+    /** Espacio lógico del lienzo entero y desplazamiento de la escena dentro de él. */
+    this.space = { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, offsetX: 0 };
     this.keys = new Set();
     this.buttons = { left: false, right: false };
     this.handlers = { click: [], key: [] };
@@ -31,8 +33,9 @@ export class Input {
   }
   #move(e) {
     const r = this.canvas.getBoundingClientRect();
-    this.mouse.x = Math.floor(((e.clientX - r.left) / r.width) * SCREEN_WIDTH);
-    this.mouse.y = Math.floor(((e.clientY - r.top) / r.height) * SCREEN_HEIGHT);
+    const s = this.space;
+    this.mouse.x = Math.floor(((e.clientX - r.left) / r.width) * s.width - s.offsetX);
+    this.mouse.y = Math.floor(((e.clientY - r.top) / r.height) * s.height);
     this.mouse.inside = true;
   }
   onClick(h) { this.handlers.click.push(h); }

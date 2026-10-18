@@ -5,7 +5,8 @@
 
 const KEY = 'syndicate-remake.options';
 export const LANGUAGES = Object.freeze({ en: 'English', fr: 'Français', it: 'Italiano', es: 'Español' });
-export const DEFAULT_OPTIONS = Object.freeze({ lang: 'en', music: 0.6, sfx: 1 });
+export const DEFAULT_OPTIONS = Object.freeze({ lang: 'en', music: 0.6, sfx: 1, graphics: 'enhanced' });
+export const GRAPHICS = Object.freeze({ enhanced: 'Gráficos mejorados', original: 'Gráficos originales' });
 
 /** Opciones guardadas, con los valores por defecto para lo que falte o no sea válido. */
 export function loadOptions(storage = globalThis.localStorage) {
@@ -16,6 +17,7 @@ export function loadOptions(storage = globalThis.localStorage) {
     lang: saved.lang in LANGUAGES ? saved.lang : DEFAULT_OPTIONS.lang,
     music: vol(saved.music, DEFAULT_OPTIONS.music),
     sfx: vol(saved.sfx, DEFAULT_OPTIONS.sfx),
+    graphics: saved.graphics in GRAPHICS ? saved.graphics : DEFAULT_OPTIONS.graphics,
   };
 }
 
@@ -27,6 +29,7 @@ export function saveOptions(options, storage = globalThis.localStorage) {
 export function applyOptions(game, options) {
   game.lang = options.lang;
   game.audio?.setVolumes({ music: options.music, sfx: options.sfx });
+  if (game.graphics !== options.graphics) game.setGraphicsMode?.(options.graphics);
 }
 
 /** Crea los controles en `container` y los mantiene sincronizados con el juego. */
@@ -45,17 +48,20 @@ export function mountOptions(container, game) {
     l.append(label + ' ', input);
     return [l, input];
   };
+  const gfx = doc.createElement('select');
+  gfx.setAttribute('aria-label', 'Gráficos');
+  for (const [code, name] of Object.entries(GRAPHICS)) gfx.add(new Option(name, code, false, code === options.graphics));
   const [musicLabel, music] = slider('música', options.music);
   const [sfxLabel, sfx] = slider('efectos', options.sfx);
   const update = () => {
-    options.lang = lang.value; options.music = Number(music.value) / 100; options.sfx = Number(sfx.value) / 100;
+    options.lang = lang.value; options.graphics = gfx.value; options.music = Number(music.value) / 100; options.sfx = Number(sfx.value) / 100;
     applyOptions(game, options);
     saveOptions(options);
   };
-  for (const el of [lang, music, sfx]) el.addEventListener('input', update);
+  for (const el of [lang, gfx, music, sfx]) el.addEventListener('input', update);
   // Que las teclas del juego no muevan los controles por accidente.
-  for (const el of [lang, music, sfx]) el.addEventListener('change', () => game.input?.canvas?.focus?.());
-  wrap.append(' · ', lang, ' ', musicLabel, ' ', sfxLabel);
+  for (const el of [lang, gfx, music, sfx]) el.addEventListener('change', () => game.input?.canvas?.focus?.());
+  wrap.append(' · ', lang, ' ', gfx, ' ', musicLabel, ' ', sfxLabel);
   container.append(wrap);
   return options;
 }

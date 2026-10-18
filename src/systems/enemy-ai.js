@@ -13,6 +13,12 @@ const STUN_TICKS = 10;
 /** Estado del miembro (SPEC §7.3). */
 const M = Object.freeze({ PICK: 0, START: 1, RUN: 2, HUNT: 9, DONE: 0x0d, STUNNED: 0x0c });
 
+/** Niveles de adrenalina, inteligencia y percepción que fija la orden 0x14 (`0x17300`). */
+const HUNTING = [0xff, 0x7f, 0x7f], CALM = [0x7f, 0x7f, 0x7f];
+function setBars(p, [adrenaline, intelligence, perception]) {
+  p.adrenaline.level = adrenaline; p.intelligence.level = intelligence; p.perception.level = perception;
+}
+
 export class EnemyAI {
   /**
    * @param {object} config enemyAI del nivel
@@ -111,7 +117,7 @@ export class EnemyAI {
   #done(m) {
     const p = m.person, s = m.step;
     switch (s.type) {
-      case 1: return s.order !== 3 || p.state === S.IDLE || p.state === S.SCRIPT_WAIT;
+      case 1: return s.order !== 3 || p.state === S.IDLE || p.state === S.WANDER;
       case 3: return !m.target;
       case 7: {
         if (m.counter > 0 && m.counter < 0x65) m.counter--;
@@ -136,24 +142,36 @@ export class EnemyAI {
     return pool.find((q) => !q.dead) ?? null;
   }
 
-  /** Caza (estados 6/9/10): con línea de tiro al 90 % del alcance dispara; si no, se acerca. */
+  /**
+   * Caza (estados 6/9/10, `0x17300`). La primera vez sube la adrenalina al máximo (orden 0x14)
+   * y manda ir hacia el blanco (orden 4, que lo sigue aunque se mueva); no vuelve a mandarlo
+   * mientras la persona siga ocupada (andando, desviándose…), sino solo cuando queda quieta.
+   * Cada tick, con línea de tiro al 90 % del alcance, dispara.
+   */
   #hunt(m) {
     const w = this.world, p = m.person;
     if (!m.target || m.target.dead) {
+      if (m.target) { p.equipped = null; p.fireWindow = 0; setBars(p, CALM); }   // órdenes 0xB y 0x14
+      m.approaching = false;
       m.target = m.step?.type === 3 ? this.#victimInGroup(m.step.a & 0xff) : null;
       if (!m.target) { this.#advance(m); return; }
     }
     const t = m.target;
+    if (!m.approaching) {
+      if (p.x === t.x && p.y === t.y && p.z === t.z) p.walkTo(t.x + 0x80, t.y, t.z);
+      else { setBars(p, HUNTING); p.target = t; p.order(S.GOTO_THING, S.GOTO_THING, { x: t.x, y: t.y, z: t.z }); }
+      m.approaching = true;
+      return;
+    }
     const it = p.items.find((x) => x.ammo >= 0 && w.weapons.range(x.weapon) > 256) ?? null;
-    if (!it) { p.walkTo(t.x, t.y, t.z); return; }
-    const range = Math.trunc((w.weapons.range(it.weapon) * 9) / 10);
+    const range = it ? Math.trunc((w.weapons.range(it.weapon) * 9) / 10) : 0;
+    const first = it ? lineOfFire(w, p, t, range) : null;
+    if (!first) { if (p.state === S.IDLE) m.approaching = false; return; }
     // [DIS] También dispara si la línea de tiro cruza a otro miembro del grupo del blanco.
-    const first = lineOfFire(w, p, t, range);
-    if (first === t || (first && !first.dead && first.group === t.group && first.group !== p.group)) {
+    if (first === t || (!first.dead && first.group === t.group && first.group !== p.group)) {
       p.equipped = it;
       w.weapons.activate(p, t.x, t.y, t.z + 0x80);
-    } else if (p.state !== S.WALK) {
-      p.walkTo(t.x, t.y, t.z);
     }
+    setBars(p, HUNTING);
   }
 }

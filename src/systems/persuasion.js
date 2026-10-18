@@ -1,6 +1,10 @@
 // Persuasión (SPEC §6.4).
 
 import { PersonKind, Ev } from '../entities/person.js';
+import { areaEvent } from './vehicles.js';
+
+const CELL = 0x100;                         // cajas de 0x100³ (`0x1eb80`, efecto 0x32)
+const eyesLevel = (p) => (p.mods & 0x1800) >> 11;
 
 const brainLevel = (p) => (p.mods >> 9) & 3;
 
@@ -48,14 +52,17 @@ export class Persuasion {
   }
 
   /**
-   * Activación del PERSUADERTRON: marca el evento 0x400 en las personas cercanas.
-   * [DIS] Mientras se documenta la rejilla original (`word3c & 0x1800`), radio de una casilla.
+   * Pulso del PERSUADERTRON (efecto 0x32 de `0x1eb80`): marca el evento 0x400 con una rejilla
+   * de cajas de 0x100³ con base en z, centradas desde −n·0x80 hasta +n·0x80 en x e y, donde n
+   * es el nivel de los ojos del portador (`+0x3c & 0x1800`). Alcance: ±0x80·(n+1), más el
+   * margen de ±0x20 de cada persona.
    */
   pulse(world, persuader) {
-    for (const p of world.grid.query(persuader.x - 0x100, persuader.y - 0x100, persuader.x + 0x100, persuader.y + 0x100)) {
-      if (p === persuader || p.class !== 1 || p.dead || Math.abs(p.z - persuader.z) > 0x80) continue;
-      p.events |= Ev.PERSUADE;
-      p.eventSource = persuader;
+    const n = eyesLevel(persuader);
+    for (let dx = -n * 0x80; dx <= n * 0x80; dx += CELL) {
+      for (let dy = -n * 0x80; dy <= n * 0x80; dy += CELL) {
+        areaEvent(world, persuader.x + dx, persuader.y + dy, persuader.z, [CELL, CELL, CELL], Ev.PERSUADE, persuader, persuader);
+      }
     }
   }
 }

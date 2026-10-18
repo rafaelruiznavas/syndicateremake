@@ -2,6 +2,7 @@
 // paleta, A = 0 transparente); aquí se recolorean con la paleta de la misión.
 
 import { addSpanish } from '../i18n/spanish.js';
+import { scale2x } from '../render/upscale.js';
 
 async function loadJson(base, path) {
   const r = await fetch(`${base}/${path}`);
@@ -76,18 +77,28 @@ export class Assets {
   level(n) { return loadJson(this.base, `levels/game${String(n).padStart(2, '0')}.json`); }
   map(n) { return loadJson(this.base, `maps/map${String(n).padStart(2, '0')}.json`); }
 
-  /** Atlas en color para la paleta de una misión (se cachean por nombre de paleta). */
-  graphicsFor(paletteName) {
-    if (!this.cache.has(paletteName)) {
+  /**
+   * Atlas en color para la paleta de una misión (se cachean por paleta y escala). Con
+   * `scale = 2` (gráficos mejorados [DIS]) los atlas se amplían con Scale2x sobre los índices.
+   */
+  graphicsFor(paletteName, scale = 1) {
+    const key = `${paletteName}@${scale}`;
+    if (!this.cache.has(key)) {
       const pal = this.palettes[paletteName];
-      this.cache.set(paletteName, {
-        palette: pal,
-        blocks: colorize(this.blocksIndexed, pal),
-        sprites: colorize(this.spritesIndexed, pal),
-        pointers: colorize(this.pointersIndexed, pal),
+      const src = scale === 2 ? this.#indexed2x() : { blocks: this.blocksIndexed, sprites: this.spritesIndexed, pointers: this.pointersIndexed };
+      this.cache.set(key, {
+        palette: pal, scale,
+        blocks: colorize(src.blocks, pal),
+        sprites: colorize(src.sprites, pal),
+        pointers: colorize(src.pointers, pal),
       });
     }
-    return this.cache.get(paletteName);
+    return this.cache.get(key);
+  }
+
+  #indexed2x() {
+    this.indexed2x ??= { blocks: scale2x(this.blocksIndexed), sprites: scale2x(this.spritesIndexed), pointers: scale2x(this.pointersIndexed) };
+    return this.indexed2x;
   }
 
   paletteForMission(mission) {

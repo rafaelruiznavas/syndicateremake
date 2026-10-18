@@ -33,6 +33,16 @@ export class Scanner {
   }
 
   /** 8 px por casilla, o 4 si algún agente de la escuadra lleva un escáner (`0x2d0e0`). */
+  /**
+   * Punto del mundo bajo (sx, sy) del recuadro (`0x2d610`): 0x100/zoom unidades por píxel
+   * desde el centro, centrado en `focus`, dentro de 0x100..0x7F00 × 0x100..0x5F00.
+   */
+  static pointAt(world, focus, sx, sy) {
+    const k = 0x100 / Scanner.zoom(world);
+    const clamp = (v, max) => Math.max(0x100, Math.min(max, Math.trunc(v)));
+    return { x: clamp(focus.x + k * (sx - SCANNER.w / 2), 0x7f00), y: clamp(focus.y + k * (sy - SCANNER.h / 2), 0x5f00), z: focus.z + 0x80 };
+  }
+
   static zoom(world) {
     return world.squad.some((a) => !a.dead && a.items.some((it) => it.weapon === W.SCANNER)) ? ZOOM_WITH_SCANNER : ZOOM;
   }

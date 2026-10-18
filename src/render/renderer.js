@@ -1,8 +1,10 @@
 // Render de la misión: terreno y entidades de atrás hacia delante, sobre un canvas
-// lógico de 640×400 (vista de 512×400 a la derecha del panel).
+// lógico de 640×400 (vista de 512×400 a la derecha del panel; más ancha en 16:9).
 
 import { TILE, LEVEL, SCREEN_WIDTH, SCREEN_HEIGHT, PANEL_WIDTH } from '../core/constants.js';
-import { paintKey, entityBox, blockInFront } from './occlusion.js';
+import { paintKey, entityBox, blockInFront, drawPosition } from './occlusion.js';
+import { Vehicle } from '../entities/entity.js';
+import { Person, S } from '../entities/person.js';
 
 const BLOCK_W = 64, BLOCK_H = 48, BLOCK_COLS = 16;
 const OCCLUDE_REACH = 8;       // casillas por delante de la entidad en x e y que pueden taparla
@@ -40,19 +42,20 @@ export class Renderer {
       if (recolor) sprite = recolor(sprite);
       const r = sprites[sprite];
       if (r) {
-        const x = sx + el.dx, y = sy + el.dy;
+        const x = sx + el.dx, y = sy + el.dy, k = this.gfx.scale ?? 1;
         if (el.flip) {
           g.save(); g.translate(x + r.w, y); g.scale(-1, 1);
-          g.drawImage(atlas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+          g.drawImage(atlas, r.x * k, r.y * k, r.w * k, r.h * k, 0, 0, r.w, r.h);
           g.restore();
-        } else g.drawImage(atlas, r.x, r.y, r.w, r.h, x, y, r.w, r.h);
+        } else g.drawImage(atlas, r.x * k, r.y * k, r.w * k, r.h * k, x, y, r.w, r.h);
       }
       e = el.next;
     }
   }
 
   drawBlock(tile, sx, sy) {
-    this.ctx.drawImage(this.gfx.blocks, (tile % BLOCK_COLS) * BLOCK_W, Math.floor(tile / BLOCK_COLS) * BLOCK_H, BLOCK_W, BLOCK_H, sx, sy, BLOCK_W, BLOCK_H);
+    const k = this.gfx.scale ?? 1;
+    this.ctx.drawImage(this.gfx.blocks, (tile % BLOCK_COLS) * BLOCK_W * k, Math.floor(tile / BLOCK_COLS) * BLOCK_H * k, BLOCK_W * k, BLOCK_H * k, sx, sy, BLOCK_W, BLOCK_H);
   }
 
   /**
@@ -60,15 +63,18 @@ export class Renderer {
    * entidades ordenadas por x+y y, tras cada una, los bloques que quedan delante de ella,
    * recortados a su rectángulo en pantalla.
    */
-  render(world, camera) {
+  render(world, camera, { alpha = 0, enhanced = false } = {}) {
     const g = this.ctx, map = world.map;
+    this.alpha = enhanced ? alpha : 0;      // el modo original dibuja la posición del ciclo
+    this.fx = enhanced ? this.effects ?? null : null;
+    const right = this.right = camera.width ?? SCREEN_WIDTH;   // borde derecho: 640, o más en 16:9
     g.save();
-    g.beginPath(); g.rect(PANEL_WIDTH, 0, SCREEN_WIDTH - PANEL_WIDTH, SCREEN_HEIGHT); g.clip();
-    g.fillStyle = '#000'; g.fillRect(PANEL_WIDTH, 0, SCREEN_WIDTH - PANEL_WIDTH, SCREEN_HEIGHT);
+    g.beginPath(); g.rect(PANEL_WIDTH, 0, right - PANEL_WIDTH, SCREEN_HEIGHT); g.clip();
+    g.fillStyle = '#000'; g.fillRect(PANEL_WIDTH, 0, right - PANEL_WIDTH, SCREEN_HEIGHT);
 
     // Casillas visibles: se proyectan las esquinas de la vista a los niveles 0 y máximo.
     const corners = [];
-    for (const [sx, sy] of [[PANEL_WIDTH, 0], [SCREEN_WIDTH, 0], [PANEL_WIDTH, SCREEN_HEIGHT + 64], [SCREEN_WIDTH, SCREEN_HEIGHT + 64]])
+    for (const [sx, sy] of [[PANEL_WIDTH, 0], [right, 0], [PANEL_WIDTH, SCREEN_HEIGHT + 64], [right, SCREEN_HEIGHT + 64]])
       for (const z of [0, map.depth * LEVEL]) corners.push(camera.unproject(sx, sy, z));
     const view = {
       tx0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0])) / TILE) - 1),
@@ -88,8 +94,14 @@ export class Renderer {
     const ents = world.entities.filter((e) => !e.hidden && (e.x >> 8) >= view.tx0 - 2 && (e.x >> 8) <= view.tx1 + 2 && (e.y >> 8) >= view.ty0 - 2 && (e.y >> 8) <= view.ty1 + 2);
     ents.sort((a, b) => paintKey(a) - paintKey(b) || a.z - b.z);
     for (const e of ents) {
-      const bounds = this.drawEntity(e, camera, world);
-      if (bounds) this.occlude(e, bounds, map, camera);
+      const pos = drawPosition(e, this.alpha);
+      if (this.fx && e instanceof Vehicle && !e.destroyed) {
+        const [sx, sy] = camera.projectFine(pos.x, pos.y, pos.z);
+        this.fx.underglow(g, sx, sy, e.id);
+      }
+      const bounds = this.drawEntity(e, camera, world, pos);
+      if (bounds) this.occlude(e, bounds, map, camera, pos);
+      if (this.fx && bounds) this.light(e, bounds, world, camera, pos);
     }
     if (this.debug) this.drawDebug(world, camera);
     g.restore();
@@ -99,14 +111,21 @@ export class Renderer {
     const tile = map.tileAt(tx, ty, tz);
     if (!tile || this.emptyBlock[tile]) return;
     const [px, py] = camera.project(tx * TILE, ty * TILE, (tz + 1) * LEVEL);
-    if (px + 32 < PANEL_WIDTH || px - 32 > SCREEN_WIDTH || py > SCREEN_HEIGHT || py + BLOCK_H < 0) return;
+    if (px + 32 < PANEL_WIDTH || px - 32 > (this.right ?? SCREEN_WIDTH) || py > SCREEN_HEIGHT || py + BLOCK_H < 0) return;
     this.drawBlock(tile, px - 32, py);
   }
 
+  /** Luces del modo mejorado [DIS]: destellos de los efectos y fogonazos al disparar. */
+  light(e, [x0, y0, x1, y1], world, camera, pos) {
+    const [sx, sy] = camera.projectFine(pos.x, pos.y, pos.z);
+    if (world.effects.includes(e)) this.fx.flash(this.ctx, sx, sy, x1 - x0 > 40 || y1 - y0 > 40);
+    else if (e instanceof Person && e.state === S.FIRING && !e.dead) this.fx.muzzle(this.ctx, sx, sy);
+  }
+
   /** Vuelve a pintar, recortados al rectángulo de la entidad, los bloques que tiene delante. */
-  occlude(e, [x0, y0, x1, y1], map, camera) {
-    const box = entityBox(e), g = this.ctx;
-    const ex = e.x >> 8, ey = e.y >> 8;
+  occlude(e, [x0, y0, x1, y1], map, camera, pos = e) {
+    const box = entityBox(e, pos), g = this.ctx;
+    const ex = Math.floor(pos.x) >> 8, ey = Math.floor(pos.y) >> 8;
     let clipped = false;
     for (let s = ex + ey - 2; s <= ex + ey + OCCLUDE_REACH * 2; s++) {
       for (let tx = Math.max(0, ex - 2, s - (ey + OCCLUDE_REACH)); tx <= Math.min(map.width - 1, ex + OCCLUDE_REACH, s - (ey - 2)); tx++) {
@@ -126,11 +145,13 @@ export class Renderer {
   }
 
   /** Dibuja la entidad y devuelve su rectángulo en pantalla [x0, y0, x1, y1] (o null si no se ve). */
-  drawEntity(e, camera, world) {
-    const [sx, sy] = camera.project(e.x, e.y, e.z);
-    if (sx < PANEL_WIDTH - 64 || sx > SCREEN_WIDTH + 64 || sy < -64 || sy > SCREEN_HEIGHT + 96) return null;
+  drawEntity(e, camera, world, pos = e) {
+    const [sx, sy] = this.alpha ? camera.projectFine(pos.x, pos.y, pos.z) : camera.project(pos.x, pos.y, pos.z);
+    if (sx < PANEL_WIDTH - 64 || sx > (this.right ?? SCREEN_WIDTH) + 64 || sy < -64 || sy > SCREEN_HEIGHT + 96) return null;
+    const selected = world.selection.has(e);
+    if (selected && this.fx) this.fx.selection(this.ctx, sx, sy);
     this.drawFrame(e.frame, sx, sy, world.recolorFor(e));
-    if (world.selection.has(e)) {
+    if (selected && !this.fx) {
       const g = this.ctx; g.strokeStyle = '#ff0'; g.lineWidth = 1;
       g.beginPath(); g.ellipse(sx, sy, 8, 4, 0, 0, Math.PI * 2); g.stroke();
     }

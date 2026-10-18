@@ -103,6 +103,23 @@ export class Detours {
     if (dz !== null) copy.z += dz;
   }
 
+  /**
+   * Desvío corto (`0x306d0`, al huir): la pared es el primer eje bloqueado desde la izquierda
+   * de la orientación; se gira 90° hacia el lado al que ya miraba y se sigue la pared `timer`
+   * ciclos. Sin destino propio, se usa `dest` (el punto de huida) [INF].
+   */
+  quick(p, timer, dest) {
+    if (!p.destination) p.destination = dest;
+    let wall = ((((p.facing + 0x20) >> 6) * 0x40) - 0x40) & 255;
+    for (let i = 0; i < TRIES && this.free(p, wall, p.speed || 16); i++) wall = (wall + 0x40) & 255;
+    p.detour = { heading: wall, tries: TRIES, startDist: dist(p, p.destination) };
+    p.timer = timer;
+    const turnLeft = wall === 0 ? (p.facing > 0 && p.facing < 0x80) : p.facing > wall;
+    p.nextState = p.state;
+    p.state = turnLeft ? S.WALL_LEFT : S.WALL_RIGHT;
+    p.facing = (wall + (turnLeft ? 0x40 : -0x40)) & 255;
+  }
+
   /** Ningún eje bloqueado (choca en diagonal): busca la diagonal bloqueada y sale por un eje vecino al azar. */
   #nudge(p, a, speed) {
     let c = (a + 0x20) & 255;

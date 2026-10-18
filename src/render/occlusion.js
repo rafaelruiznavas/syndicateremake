@@ -21,10 +21,20 @@ export function paintKey(e) {
   return e.x + e.y;
 }
 
-/** Caja de la entidad en el mundo: [x0, x1, y0, y1, z0, z1]. */
-export function entityBox(e) {
+/** Caja de la entidad en el mundo: [x0, x1, y0, y1, z0, z1] (en `pos` si se da). */
+export function entityBox(e, pos = e) {
   const [r, h] = e instanceof Person ? BOX.person : e instanceof Vehicle ? BOX.vehicle : e.class === STATIC_CLASS ? BOX.static : BOX.other;
-  return [e.x - r, e.x + r, e.y - r, e.y + r, e.z, e.z + h];
+  return [pos.x - r, pos.x + r, pos.y - r, pos.y + r, pos.z, pos.z + h];
+}
+
+const SNAP = 0x200;   // más que esto entre ciclos es un salto (subir, teletransporte): no se interpola
+
+/** Posición de dibujo: entre la del ciclo anterior y la actual según `alpha` (0..1). [DIS] */
+export function drawPosition(e, alpha) {
+  if (!alpha || e.prevX === undefined) return e;
+  const dx = e.x - e.prevX, dy = e.y - e.prevY, dz = e.z - e.prevZ;
+  if (Math.abs(dx) > SNAP || Math.abs(dy) > SNAP || Math.abs(dz) > SNAP) return e;
+  return { x: e.prevX + dx * alpha, y: e.prevY + dy * alpha, z: e.prevZ + dz * alpha };
 }
 
 /** ¿El bloque (tx, ty, tz) está delante de la caja? Cerca del observador = mayor x, y o z. */

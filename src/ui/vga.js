@@ -2,6 +2,8 @@
 // coordenadas que recibe están en el espacio lógico de 640×400 y se dividen entre 2,
 // como en el original; al presentar se escala ×2 al canvas de 640×400.
 
+import { scale2xToRgba } from '../render/upscale.js';
+
 export const VGA_W = 320;
 export const VGA_H = 200;
 
@@ -59,8 +61,12 @@ export class Vga {
     }
   }
 
-  /** Convierte a RGBA con la paleta y dibuja escalado en el contexto de 640×400. */
+  /**
+   * Convierte a RGBA con la paleta y dibuja escalado en el contexto de 640×400. Con
+   * `smooth` (gráficos mejorados [DIS]) se amplía antes con Scale2x y se suaviza al dibujar.
+   */
   present(ctx, x = 0, y = 0, scale = 2) {
+    if (this.smooth) { this.#presentSmooth(ctx, x, y, scale); return; }
     if (!this.canvas) { this.canvas = new OffscreenCanvas(VGA_W, VGA_H); this.g = this.canvas.getContext('2d'); this.image = new ImageData(VGA_W, VGA_H); }
     const d = this.image.data, pal = this.palette, px = this.pixels;
     for (let i = 0, j = 0; i < px.length; i++, j += 4) {
@@ -70,5 +76,13 @@ export class Vga {
     this.g.putImageData(this.image, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.canvas, x, y, VGA_W * scale, VGA_H * scale);
+  }
+
+  #presentSmooth(ctx, x, y, scale) {
+    if (!this.canvas2) { this.canvas2 = new OffscreenCanvas(VGA_W * 2, VGA_H * 2); this.g2 = this.canvas2.getContext('2d'); this.image2 = new ImageData(VGA_W * 2, VGA_H * 2); }
+    scale2xToRgba(this.pixels, VGA_W, VGA_H, this.palette, this.image2.data);
+    this.g2.putImageData(this.image2, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this.canvas2, x, y, VGA_W * scale, VGA_H * scale);
   }
 }

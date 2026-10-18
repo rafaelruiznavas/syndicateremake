@@ -37,7 +37,7 @@ export class MissionAudio {
   /** Visible en la zona de juego (las entidades que se dibujan). */
   onScreen(e) {
     const [sx, sy] = this.camera.project(e.x, e.y, e.z);
-    return sx > VIEW_ORIGIN_X - 64 && sx < 640 + 64 && sy > -96 && sy < 400 + 96;
+    return sx > VIEW_ORIGIN_X - 64 && sx < (this.camera.width ?? 640) + 64 && sy > -96 && sy < 400 + 96;
   }
 
   /** Un ciclo: sonidos de fotograma, música y reproducción de las peticiones. */

@@ -51,7 +51,7 @@ export function runScenarioStep(world, p, steps) {
       break;
     case ScenarioType.END:
       p.scenario = null;
-      p.state = S.SCRIPT_WAIT;
+      p.state = S.WANDER;              // fin del guion: a pasear (`0x33230` fija +0x0b & 0x10)
       return;
     case ScenarioType.WAIT:
       p.timer = WAIT_CYCLES;

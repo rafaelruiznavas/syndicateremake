@@ -116,6 +116,7 @@ Las clases 6–9 son las cuatro rampas orientadas según la dirección 0/0x40/0x
 | `+0x0a` bit 0 | oculta o inactiva (no se dibuja ni colisiona) | [OBS] `0x1d450` |
 | `+0x0b` bit 0 | muerta (usado por objetivos y filtros) | [OBS] `0x105e0` |
 | `+0x0b` bit 1 | puede descender más de 32 | [OBS] |
+| `+0x0b` bit 4 | paseante: al terminar una acción vuelve al estado 0x1D (§7.1) | [OBS] `0x30250`, `0x33230` |
 | `+0x10` | frame de animación | [OBS] `0x1d450` |
 | `+0x14` | salud (int16): 16 llena, muerte con < 0 | [OBS] GH:vida-profundo |
 | `+0x16` | índice de quien la ha matado | [OBS] REA ev_24ab4230 |
@@ -203,6 +204,19 @@ Tablas por arma (20 entradas): PARADO `0x5a546` / ANDAR `0x5a56e` / DISPARO `0x5
 3. Por cada entidad: se pinta su frame (con el reteñido de los agentes, §5.4) y se calcula el rectángulo que cubren sus elementos. Después (`0x43806`), si la entidad no tiene `+0x0a & 2` y la casilla de su posición no es un tile especial (3 o 4), se vuelven a pintar sobre ese rectángulo, por franjas de 16 px, los subtiles del mapa que quedan delante de ella. `0x43933` elige la variante según el triángulo de la casilla en el que está la entidad (`(x & 0xff) + (y & 0xff) > 0xff` y `(y & 0xff) ≤ (x & 0xff)`).
 
 [DIS] `0x43933` es ensamblador con tablas de saltos por subtile; el remake usa una regla de cajas equivalente: un bloque se vuelve a pintar sobre la entidad si está por completo más cerca del observador en algún eje (más x, más y o más z que la caja de la entidad) y la entidad no lo está en ninguno. Cajas: personas ±0x20 y 0x100 de alto; vehículos ±0x80 y 0xC0; estáticos ±0x40 y 0x200; el resto ±0x20 y 0x80. Así, el bloque de una rampa que se pisa nunca tapa a quien está encima, y un coche no queda cortado por las casillas vecinas que invade.
+
+### 5.6 Estáticos con estado: puertas y verjas
+
+[OBS] REA (`0x2b940`, `0x15170`, `0x152e0`). Cada ciclo, después de las personas, los disparos y los efectos, se actualizan los estáticos según su subtipo (`+0x19`), que hace de estado. La animación de las puertas es `+0x0e` (base) + 2·paso + `((orientación + 0x20) >> 6) & 1`.
+
+| Estado | Puerta (personas) | Verja (vehículos) |
+|---|---|---|
+| cerrada | 0x0C: si hay una persona visible a ±0x80 (más su ±0x20) en x e y y a la altura (`0x15170`), pasa a 0x0D | 0x26: si hay un vehículo visible en las 5×5 casillas que empiezan 2 casillas antes en x e y (`0x152e0`), pasa a 0x27 |
+| abriéndose | 0x0D: al acabar la animación, 0x0E | 0x27: al acabar, 0x28 y se oculta (`+0x0a` |= 1) |
+| abierta | 0x0E: si ya no hay nadie, 0x0F | 0x28: si ya no hay vehículo, 0x29 y vuelve a verse |
+| cerrándose | 0x0F: al acabar, 0x0C y temporizador 0x28 | 0x29: al acabar, 0x26 y temporizador 0x28 |
+
+Animaciones de las verjas: 0x18B/0x188 (cerrada), 0x18C/0x189 (abriéndose) y 0x18D/0x18A (cerrándose), según la orientación sea 0/0x80 u otra. Las puertas no bloquean el paso: la casilla de la puerta es libre en el mapa y el paso de las personas solo consulta el terreno (`0x2fd20`). [DES] Los demás estados de `0x2b940` (farolas que parpadean, objetos que se rompen) no se han implementado.
 
 ## 6. Combate
 
@@ -332,7 +346,7 @@ Solo para agentes (`+0x1c & 2`) con 0 ≤ salud < 16. [OBS] GH:vida-profundo.
 
 [OBS] REA ev_ee985ca4 (`0x302a0`), ev_19470b7b (`0x30600`).
 
-**Activación:** el PERSUADERTRON marca el evento `0x400` en las personas alcanzadas, con `+0x16` = persuasor. La rejilla de cajas de 256³ depende de los bits `word3c & 0x1800` [DES].
+**Activación** [OBS] REA ev_fd42a25e (`0x3a970`, arma 1) y ev_105a908c (`0x1eb80`, efecto 0x32): el PERSUADERTRON es **pasivo**. Cada ciclo en que está equipado, con recurso ≥ 0 y su portador **no** está disparando (L = 0), crea en la posición del portador un efecto 0x32 que dura un ciclo; dispararlo no hace nada y no gasta recurso. El efecto marca el evento `0x400` (con `+0x16` = persuasor) en una rejilla de cajas de 0x100³ con base en z, centradas desde −n·0x80 hasta +n·0x80 en x e y con paso 0x100, donde n = nivel de los ojos del portador (`+0x3c & 0x1800`, 0..3). El alcance es ±0x80·(n+1), más el margen de ±0x20 de cada persona.
 
 **Admisión.** Cuenta los seguidores vivos del grupo del persuasor (cuyo `+0x20` apunta a ese grupo) con estos pesos: agente 5, policía 2, guardia 2, criminal 1, civil 1. Sea `P = suma·(cerebro+1)+1`, con cerebro = bits 9–10 de las mejoras del persuasor.
 
@@ -383,7 +397,7 @@ Si el asesino es civil, agente o criminal, hay una reacción:
 | Línea de tiro | Muestras a lo largo del segmento; terreno con `0x12150`; entidades con `0x14620`; devuelve el primer obstáculo | [OBS] GH:trazados |
 | Visión | No hay cono ni niebla de guerra; solo obstrucción geométrica | [OBS] GH:HIPOTESIS |
 | Policía | Ataca a los agentes buscados (`+0x1d & 2`) | [INF] por `0x315e0` + filtros de adquisición |
-| Civiles | Deambulan; huyen ante disparos o agentes marcados (0x40) | [INF] [DES] estados exactos de `0x34110` |
+| Civiles y policías de calle | Pasean (estado 0x1D, abajo) y esperan el tren en los andenes (0x29); los civiles huyen de quien va armado (§7.2) | [OBS] REA ev_78712774 (`0x33230`, `0x33e60`); los niveles guardan 4714 personas visibles en 0x1D y ~700 en 0xE/0xF a mitad de un desvío de paseo |
 | Escenarios (rutas y guiones) | Cada persona tiene `+0x28` (inicio) y `+0x26` (actual), que apuntan a registros de 8 B en `0x97c70`: `next` (u16; 0 = volver al inicio), `target` (u16), `x, y, z` (bytes; destino = x·128+64, y·128+64, z·128), `type`. Tipos: 1 ir a punto (estado 3); 2 subir al vehículo `target` si aún no va en uno (estado 5→6); 3 bajar del vehículo (estado 7); 4 matar a `target` (0xC); 5 estado 0xD con `target` [INF: persuadir/seguir]; 6 ir hacia `target` (estado 5→5), conduciendo si va en vehículo; 7 **la misión fracasa**; 8 esperar a que un agente entre en la zona de 5×7 casillas que empieza en (x/2, y/2) a la altura z·128 (estado 0x28); 9 fin del guion (0x1D); 10 esperar 50 ciclos (0x2A); 11 **la misión se completa** | [OBS] REA ev_b01d8225 (`0x31fc0`) |
 | Sindicatos rivales en el mapa del mundo | Cada día, por cada rival, `0x18eb0` decide; elige un territorio propio al azar y ataca vecinos no suyos ni del jugador con probabilidad 50 % (`rng(100) < 50`) | [OBS] REA ev_94942848 (`0x18d80`) |
 
@@ -434,15 +448,15 @@ Cada ciclo, primero corre `0x31830`: la percepción, que procesa 8 personas por 
 | 0x19 | `0x33090` | morir quemado; al acabar → 0x1B, temporizador 100, registro de la baja [OBS] |
 | 0x1A, 0x1B | `0x330d0`, `0x330f0` | cadáver [INF] |
 | 0x1C | `0x33120` | apuntar: busca un blanco a su alcance con línea de tiro (`0x316d0`); si lo hay, dispara (`0x31ec0`, a z+0x80); cuenta atrás `+0x42` y después `0x30250` [OBS] |
-| 0x1D | `0x33230` | guion terminado o en espera [INF] |
-| 0x1E | `0x33370` | seguir al persuasor [INF] |
-| 0x1F | `0x33660` | huir de `+0x2a` [INF] |
+| 0x1D | `0x33230` | **pasear**: paso de 0x10 en la orientación (sin escalar por adrenalina); si choca, desvío corto de 10 ciclos (`0x306d0`, que mide hacia el destino guardado `+0x2e/+0x30`, (0, 0) en quien nunca tuvo uno). Si el tile bajo los pies (nivel z − 1) es el borde de andén 0x80 y la orientación ≥ 0x80, mira a 0xC0; si es 0x81 y la orientación está en 0x40..0xC0, mira a 0x80; en ambos casos pasa a 0x29 con `+0x42` = 100. Después la orientación cambia `rng(3) − 1` y se fija `+0x0b \|= 0x10`, con lo que al acabar cualquier acción vuelve a 0x1D (`0x30250`). Es el estado inicial de casi todos los civiles y policías de los niveles, y el del fin de guion (paso 9) [OBS] |
+| 0x1E | `0x33370` | seguir al persuasor: si el líder va en un vehículo, ir a subir a él (5 → 6); si el líder sigue a otro, seguir a ese; copia sus barras y su arma equipada; va hacia el destino del líder girando como mucho 0x10 por ciclo; si en el siguiente paso hay alguien de su grupo en una caja de `percepción(0xC0) + 0x40` (mín. 0x10, `0x153a0`), se aparta; si choca, desvío (`0x307b0`, 0x14 ciclos si va desviado más de 0x0F, 500 si no) [OBS]; [INF] el sentido del giro con errores pequeños (el decompilado parece invertirlo) |
+| 0x1F | `0x33660` | huir de `+0x2a`: de espaldas a él (`atan − 0x80`) a velocidad fija 0x28; si choca, desvío corto (`0x306d0`: pared = primer eje bloqueado, giro de 90° hacia el lado al que ya miraba, 50 ciclos siguiendo la pared); termina cuando la distancia supera `percepción(0xA00)` [OBS] |
 | 0x20 | `0x337b0` | perseguir y atacar a `+0x2a` (dispara a ≥ 80 si está en alcance; se acerca si ≥ 300) [OBS] GH |
 | 0x21 | `0x33b40` | muerte por terreno [INF] |
 | 0x22 | `0x33740` | aviso de policía o guardia antes de atacar (`+0x2c`: espera = 30 − inteligencia(30); `+0x42`: inteligencia(50)) [OBS] |
 | 0x27 | `0x33c00` | deslizarse por una rampa [INF] |
 | 0x28 | `0x33dc0` | esperar a un agente: cada ciclo revisa una fila (`+0x42` = 0..6) de 5 casillas a partir de (`+0x2e`, `+0x30` + fila); si hay una persona agente (`+0x1c & 2`) con z = `+0x32`, termina la acción [OBS] |
-| 0x29 | `0x33e60` | patrullar con escenario [INF] |
+| 0x29 | `0x33e60` | **esperar el tren en el andén**: velocidad 0; si en la casilla de delante (posición + vector de la orientación) hay un vagón intacto (subtipo 9 o 10) y la cabeza de su tren (cadena `+0x20`) no tiene conductor o este está en 0x2A, sube a él (siguiente 6, objetivo el vagón); cuando `+0x42` llega a 0 (post-decremento), media vuelta y `0x30250` [OBS] |
 | 0x2A | `0x33f70` | esperar `+0x2c` ciclos [INF] |
 | 0x2B | `0x33fb0` | disparando: si llega un evento, lo atiende; si la animación acaba o el arma no es automática (P = 0, `0x3a0a0`), vuelve (`0x30250`) [OBS] |
 | 0x2C | `0x34030` | convertido por persuasión [INF] |
@@ -511,7 +525,15 @@ Un paso de tipo 1 con orden 3 se repite si la persona se aparta del punto.
 | 9 | cazar para persuadir | el blanco le sigue → orden 0xB |
 | 10 | destruir | el blanco muere |
 
-[DES] Algunas rutinas auxiliares (`0x17300` caza, `0x34590` elección de víctima, `0x16930`, `0x170e0`, `0x172a0`) se completarán durante la implementación.
+**Caza** (`0x17300`) [OBS] REA ev_e29a1c85. El miembro guarda si ya ha mandado acercarse:
+
+- si el blanco ha muerto: se suelta (orden 0xB: sin arma equipada y L = 0), barras a 0x7F/0x7F/0x7F (orden 0x14) y se busca otro;
+- si aún no lo ha mandado: barras a adrenalina 0xFF, inteligencia 0x7F, percepción 0x7F (orden 0x14) y orden 4 «ir hacia la entidad» (la persigue aunque se mueva); si está exactamente en su posición, orden 3 a x + 0x80. Queda marcado;
+- si ya lo ha mandado: con línea de tiro al 90 % del alcance (`0x30e40`) dispara (`0x163f0`); sin ella, **no repite la orden** mientras la persona esté ocupada (andando, desviándose…) y solo la desmarca cuando queda quieta (estado 0).
+
+Con las barras neutras de los niveles (128/128) la velocidad sería la mínima (16); la orden 0x14 les da la velocidad completa.
+
+[DES] Algunas rutinas auxiliares ( `0x34590` elección de víctima, `0x16930`, `0x170e0`, `0x172a0`) se completarán durante la implementación.
 
 ### 7.4 Vehículos
 
@@ -769,7 +791,22 @@ Estado de misión `0x60afc`: 1 en curso, 2 completada, 4 fallida, 8 abandonada.
 
 La pantalla solo ofrece las mejoras investigadas (estado 2400, `0x22eb0`).
 
-[OBS] REA ev_ee985ca4 (`0x2fae0`): la recuperación de las barras usa HEART para la adrenalina, BRAIN para la inteligencia y EYES para la percepción. La salud se regenera según CHEST (§6.3).
+[OBS] REA ev_ee985ca4 (`0x2fae0`) y ev_7e2877dd (`0x2f990`): la recuperación de las barras usa HEART para la adrenalina, BRAIN para la inteligencia y EYES para la percepción. La salud se regenera según CHEST (§6.3).
+
+**Barras.** Cada una son 4 bytes: real R (`+0x47`, `+0x4b`, `+0x4f`), neutro N (`+0x48`…), nivel pedido L (`+0x49`…, el que fija el jugador) y forzado F (`+0x4a`…). El efecto (`0x30060`, `0x300c0`, `0x30120`) usa L frente a N. Cada ciclo, con el contador c del agente (`+0x53`, de 8 bits) y el nivel i del implante:
+
+| i | R se mueve cada | N se mueve cada |
+|---|---|---|
+| 0 | 4 ciclos | 0x14 |
+| 1 | 8 | 0x1C |
+| 2 | 0x10 | 0x28 |
+| 3 | 0x28 | 0x80 |
+
+- si F ≠ 0: L = F + 0x80 y N = F (así quedan fijas las barras de los civiles y la policía de los niveles);
+- si toca a N: si N = L = R, N se acerca 1 a 0x80; si no, se acerca 1 a L (**dependencia**);
+- si toca a R: si R ≠ L, R se acerca 1 a L; si ya son iguales, R y L se acercan juntos 1 a N (**el efecto se pasa**).
+
+Con L al máximo y sin implantes, el efecto pasa del 90 % durante unos 53 s, del 50 % durante unos 67 s, y todo vuelve a 0x80 en unos 163 s; con implantes de nivel 3, unos 8 minutos de efecto completo.
 
 ### 9.2b Equipo: comprar, recargar y vender
 
@@ -917,6 +954,8 @@ rng(n) = seed mod n
 | Órdenes de grupo (`0x25a10`, 0x23–0x25) | se aplican a cada agente con `+0x1d & 4`. **Ir a un punto (0x23):** el agente k (0..3) va a `(x & 0xff00) + (k>>1)·0x80 + 0x40`, `(y & 0xff00) + (k&1)·0x80 + 0x40`: los cuatro se reparten en 2×2 dentro de la casilla pulsada [OBS] |
 | Aceptación de una orden (`0x258f0`) | si la persona no sigue a nadie y su estado es 0, 2–5, 0xE, 0xF, 0x1C, 0x1F, 0x26 o 0x2C, cambia de estado ya; si no, solo se guarda como siguiente estado (`+0x58`) y se ejecuta al acabar lo que está haciendo [OBS] |
 | Clic izquierdo en una caja del panel (0,0 · 64,0 · 0,100 · 64,100; 64×46) | seleccionar agente 1–4 |
+| Clic derecho en una caja del panel | seleccionar el agente y **localizarlo**: `0x1e300` coloca la vista en ((x − 0xA00 − z) / 128, (y − 0x200 − z) / 128), que deja al agente en el centro de la vista (384, 208) [OBS] REA ev_b5e94f7d (`0x2d610`, `+0x5e114`). [DIS] El remake también lo hace con doble clic izquierdo (dos clics en la misma caja en menos de 400 ms), centra en el centro de la vista ancha de 16:9 y, si el agente va en un vehículo, en el vehículo |
+| Clic en el escáner (x < 0x80, y > 0x10F) | punto = posición del agente seleccionado + (0x100 / zoom)·(ratón − (0x40, 0x150)), dentro de 0x100..0x7F00 × 0x100..0x5F00, a z + 0x80. **Izquierdo:** orden 3 (ir allí). **Derecho:** `0x1e300`, centrar la vista en ese punto [OBS] `0x2d610` |
 | Barra de grupo (0,90; 128×8) | seleccionar el grupo |
 | Clic derecho | disparar o usar el objeto equipado hacia el punto u objetivo (orden 8) |
 | Ranuras de inventario (2×4 de 32×34 desde 0,208) | equipar (orden 7) |
@@ -924,7 +963,7 @@ rng(n) = seed mod n
 | Esc | abandonar misión |
 | P | pausa |
 | F3/F4 | velocidad del juego |
-| Barras de adrenalina, percepción e inteligencia | se arrastran en el panel [DES] |
+| Barras de adrenalina, percepción e inteligencia | filas de 14 px desde `y + 0x2E` (adrenalina, percepción, inteligencia), de `x + 4` a `x + 0x3B`; con el botón izquierdo pulsado (también arrastrando) fijan L = (ratón − x − 4)·0x100/0x37, de 0 a 255, **solo del agente de esa caja** (órdenes 0xC, 0xE y 0xD), o de toda la escuadra viva si está seleccionado el grupo (0x2C–0x2E) [OBS] `0x2d610`, `0x25a10` |
 | Cursor | contextual: cambia si hay blanco en alcance (`0x2cb40`) |
 | Ratón | coordenadas virtuales 0..638 × 0..398 |
 
@@ -1137,8 +1176,8 @@ La misión va en modo SVGA a 640×400, sin dividir coordenadas. El panel ocupa l
   - salud: barra vertical de 6×`salud·36/16` en `(x+0x34, y+6)`, color 12;
   - arma equipada: dibujada en `(x+0x20, y+0x26)` (`0x1e1c0`, reteñida con el color del sindicato);
   - tres barras de 55×10 bajo la caja, en `(x+4, y+0x30)` adrenalina, `y+0x3e` percepción e `y+0x4c` inteligencia:
-    - entre el punto neutro y el nivel, colores claro y oscuro (14/6, 15/7 y 13/5);
-    - marca del neutro en color 12;
+    - del neutro N al nivel pedido L en color claro y del neutro al valor real R en oscuro (14/6, 15/7 y 13/5); se pinta primero el tramo que llega más lejos y encima el otro [OBS] `0x2ee30`;
+    - marca del neutro en color 12, de 10 px;
     - escala `v·55/255`.
 - **Munición** de cada hueco: barra de `munición·23/(máx+1)` × 4 en `(x+4, y+0x18)`, color 14 sobre 8.
 - **Escáner** (`0x1bec0`, recortado a (0, 0x110)–128×128): vista cenital centrada en el agente seleccionado. Escala `z` = 8 px por casilla, o 4 si algún agente de la escuadra lleva un escáner (objeto de tipo 10, `0x3a030`). Abarca 128/z casillas por lado.
@@ -1363,7 +1402,6 @@ remake/
    - helpers enemigos `0x17300` y `0x34590`;
    - estados 4–6 y 0x27;
    - reacciones a rampas;
-   - recuperación de barras `0x2f990`;
    - reparto de destinos al mover el grupo;
    - efecto visual de ENHANCE y cobro de INFO/ENHANCE (§9.5);
    - contador c9 `0x60af9` (§8.2).
@@ -1374,10 +1412,10 @@ Valores elegidos para huecos que aún no se han documentado. Se sustituirán cua
 
 | Comportamiento | Valor provisional | Pendiente de |
 |---|---|---|
-| Seguidor persuadido | Se acerca al líder si está a más de 0x180 u | manejador del estado 0x1E |
-| Huida | Se aleja hasta 0x800 u del blanco | manejador del estado 0x1F |
+| ~~Seguidor persuadido~~ | Resuelto (`0x33370`, §7.1) | — |
+| ~~Huida~~ | Resuelto (`0x33660`, `0x306d0`, §7.1) | — |
 | Recogida de objetos | Se recoge al llegar a menos de 0x80 u | estado 9 (`0x32720`) exige la misma posición; el remake mantiene 0x80 |
-| Alcance del PERSUADERTRON | ±0x100 u (una casilla) en x/y, ±0x80 en z | rejilla de `0x302a0` |
+| Alcance del PERSUADERTRON | resuelto: §6.4 (pasivo, rejilla según los ojos) | — |
 | Abertura de la escopeta | 7 trazas con orientaciones −12, −8 … +12 (paso 4) más la dispersión | `0x31f60` |
 | Caza enemiga | También dispara si la línea de tiro cruza a otro miembro del grupo del blanco | `0x34590` |
 | ~~Desvío ante obstáculos~~ | Resuelto en la fase de pulido (§7.5) | — |
@@ -1385,6 +1423,7 @@ Valores elegidos para huecos que aún no se han documentado. Se sustituirán cua
 | Quién conduce | En el original, cualquier ocupante en estado 2/3 llama a `0x37110` sobre el vehículo; el remake solo deja conducir al conductor, para que un grupo dentro de un coche no lo mueva varias veces por ciclo | comprobar en el original con varios agentes dentro |
 | Vehículos destruidos y trenes | Los vehículos no reciben daño y los vagones (9, 10) no se mueven | rutina de actualización de vehículos (no localizada) |
 | Opciones de idioma y volumen | El original fija el idioma y el volumen en la instalación (SETUP); el remake ofrece un panel bajo el lienzo con idioma (en/fr/it con los textos originales, y **español**, traducción propia del remake en `src/i18n/`), volumen de música y de efectos, guardado en localStorage. El español se añade al cargar como clave `es` de cada texto `{en, fr, it}` y de cada briefing (mismas secciones «|» de INFO). Los acentos se convierten a CP437 para las fuentes; como en los textos franceses del original, las mayúsculas van sin acento (los glifos acentuados tienen forma de minúscula), salvo la Ñ (0xA5); HFNT01, sin glifos acentuados, recibe la letra sin acento | — |
+| Gráficos mejorados (por defecto; se puede volver a «Gráficos originales») | Lienzo de 1280×720 (16:9): el espacio lógico conserva sus 400 filas (escala 1,8) y mide ≈711 de ancho; la misión usa todo el ancho (la vista se ensancha a la derecha del panel y se ve más ciudad; el desplazamiento por el borde, el centrado y el sonido «en pantalla» usan el borde nuevo) y las pantallas de gestión de 640×400 se centran con bandas negras. Atlas de bloques, sprites y cursores ampliados ×2 con Scale2x sobre los índices de paleta (sin colores nuevos), y pantallas VGA ampliadas igual cada fotograma; suavizado al escalar. Posición de dibujo interpolada entre el ciclo anterior y el actual (no en saltos de más de 0x200) con precisión de medio píxel. Efectos futuristas sin efecto en la simulación: bloom de las zonas brillantes, gradación cian/magenta, viñeta, neón bajo los vehículos, destellos de efectos y disparos, anillo holográfico de selección y HUD con bordes de neón y barrido de radar. El modo original no cambia nada de lo anterior | — |
 | Trucos | Solo con el parámetro `cheat` en la URL aparece un menú «Trucos» en la barra superior. «Agentes invulnerables» hace que los agentes de la escuadra ignoren balas, explosiones, fuego, atropellos, el daño de las reacciones y el suelo mortal (clase 10). Se aplica en vivo y no se guarda | — |
 
 ---

@@ -266,6 +266,43 @@ Verificado: 87 pruebas (`npm test`), entre ellas un coche de GAME02 tiroteado co
 - Ahora sigue el orden del original (`0x1d450`): todo el mapa, luego las entidades por x+y y, tras cada una, los bloques que tiene delante repintados sobre su rectángulo (`src/render/occlusion.js`).
 - Verificado: pruebas de la regla (rampa, coche, suelo, techo) y en el navegador (agente en una rampa de GAME02, coches circulando y pasando detrás de una torre). Coste: 1,9 ms por fotograma.
 
+## Gráficos mejorados ✅ [DIS]
+- Modo por defecto, con selector «Gráficos mejorados / originales» en la barra; el original queda intacto.
+- Resolución 1280×720 (16:9): misma altura lógica de 400 a escala 1,8; la vista de la misión se ensancha (≈711 lógicos en vez de 640) y los menús se centran con bandas; el ratón se convierte al espacio de la escena (`Game#frame`, `Input.space`). Prueba en `test/graphics.test.mjs`; verificado en el navegador (misión 2, menú principal y cambio de modo).
+- Menos pixelado: atlas y pantallas VGA ampliados con Scale2x sobre los índices de paleta (`src/render/upscale.js`), suavizado al escalar.
+- Animación más fluida: la posición de dibujo se interpola entre ciclos de simulación (≈10 por segundo) con precisión de medio píxel.
+- Estética futurista (`src/render/effects.js`): bloom, gradación cian/magenta, viñeta, neón bajo los coches, destellos de explosiones y disparos, anillo holográfico de selección, borde de neón del panel y barrido de radar en el escáner.
+- Verificado: pruebas (Scale2x, interpolación, proyección fina, opción guardada); en el navegador, menús y misión 2. Coste medido: ~2,6 ms por fotograma en modo mejorado.
+
+## Puertas y movimiento errático ✅
+- **Puertas:** el remake no actualizaba los estáticos y las puertas se quedaban siempre cerradas. Ahora siguen la máquina de estados del original (`0x2b940`): se abren cuando hay una persona al lado y se cierran cuando se va; las verjas hacen lo mismo con los vehículos (`src/systems/statics.js`, SPEC §5.6).
+- **Huida (0x1F) y seguimiento (0x1E):** eran provisionales [DIS]. Ahora siguen al original: huir de espaldas a velocidad fija con desvío corto siguiendo la pared, y seguir girando como mucho 0x10 por ciclo, apartándose de los de su grupo y subiendo al vehículo del líder.
+- Medido en simulación (800 ciclos): en GAME02 los cambios bruscos de sentido al huir bajan de 1.527 a 125 (del 16 % al 4,5 % de los pasos).
+- Verificado: pruebas de puertas, verjas, desvío corto y giro acotado; en el navegador, una puerta de GAME02 abriéndose y cerrándose.
+
+## Paseantes ✅
+- Los civiles y la policía de calle estaban quietos: el remake trataba el estado 0x1D como «guion terminado» y arrancaba a todos en reposo. En el original (`0x33230`) 0x1D es **pasear**: avanzan 0x10 por ciclo con una deriva aleatoria de ±1 en la orientación, rodean lo que les corta el paso con un desvío corto de 10 ciclos y vuelven a pasear tras cualquier otra acción (bandera `+0x0b & 0x10`, ahora `Person.wanders`).
+- Andenes: sobre los bordes 0x80/0x81 se paran mirando a la vía hasta 100 ciclos (0x29, `0x33e60`) y suben a un vagón si su tren está parado; si no, dan media vuelta.
+- Al cargar se conservan los estados del nivel 0x1D, 0x29 y los desvíos en curso (0xE/0xF con pared, intentos, distancia y temporizador).
+- Se quita el apaño anterior (los agentes enemigos marcados volvían a 0x1D para «esperar»); ahora vuelven a 0 como en `0x30250`.
+- Medido (`wander-sim`, 600 ciclos): en la misión 2 se mueven 197 de 208 personas (antes casi ninguna) con 0,9 % de inversiones de dirección; en las misiones 3 y 14 hay civiles que esperan en el andén y suben al tren. Pruebas en `test/wander.test.mjs`.
+
+## PERSUADERTRON y caza enemiga ✅
+- **PERSUADERTRON:** solo actuaba al dispararlo (2 ciclos, una casilla). En el original (`0x3a970`, `0x1eb80` efecto 0x32) es pasivo: mientras está equipado y no se dispara, cada ciclo convierte a quien esté en ±0x80·(ojos+1). Ahora basta con llevarlo en la mano y acercarse.
+- **Misión 2 (eliminar a los 32 agentes enemigos):** los enemigos se quedaban atascados porque el guion repetía «andar hacia el blanco» cada tick y cortaba su desvío; además iban a velocidad mínima. Ahora siguen `0x17300`: orden 4 una sola vez con adrenalina al máximo, y no se repite hasta que quedan quietos. En la simulación (4000 ciclos, escuadra invulnerable) se mueven 29 de 31 (antes 19) y 22 llegan hasta la escuadra; los que quedan son el grupo que guarda su posición y algunos del grupo 4 en las azoteas.
+- Pruebas en `test/persuasion-hunt.test.mjs`; verificado en el navegador (misión 2: un civil junto al agente con el PERSUADERTRON pasa a seguirle).
+
+## Localizar agentes desde el panel ✅
+- Clic derecho en la caja de un agente: lo selecciona y centra la vista en él (`0x2d610` → `0x1e300`), como en el original. También con doble clic izquierdo [DIS], que es como se recordaba.
+- Escáner: clic izquierdo manda al agente a ese punto y clic derecho centra la vista allí (`0x2d610`); antes el escáner no respondía.
+- Pruebas en `test/locate.test.mjs`; verificado en el navegador (doble clic en la caja 3 con el agente fuera de pantalla).
+
+## Barras de los agentes ✅
+- Antes: el nivel pedido se quedaba fijo para siempre y un clic cambiaba a todos los seleccionados. Ahora siguen `0x2f990`: el valor real sube poco a poco hacia lo pedido; cuando llega, el efecto se va pasando y el punto neutro se desplaza hacia lo pedido (dependencia), hasta volver todo a 0x80. El corazón, el cerebro y los ojos lo hacen más lento.
+- Panel como `0x2ee30`: tramo claro hasta lo pedido, oscuro hasta el valor real, marca del neutro. Zonas de clic y valor como `0x2d610` (filas de 14 px, 0x100/0x37 por píxel), solo el agente de la caja o todo el grupo, y se puede arrastrar.
+- Las barras forzadas de los niveles (civiles, policía) se cargan con sus 4 bytes.
+- Pruebas en `test/bars.test.mjs`; verificado en el navegador (arrastre sobre la adrenalina del agente 1: real 128 → 141 en 5 s, neutro 128 → 130).
+
 ## Diferencias conocidas
 - **Quién conduce:** solo el conductor mueve el vehículo ([DIS], SPEC §15.1).
 - **Explosión de vehículos:** la onda se aplica en el mismo ciclo y se crea una sola llama (el original llena el pool de efectos con llamas en el mismo punto); el efecto es el mismo ([DIS], SPEC §7.4). El significado de los bits `0x108` y del contador de daños `0x60af0` sigue abierto.

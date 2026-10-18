@@ -14,8 +14,8 @@ export const S = Object.freeze({
   APPROACH: 0x0c, ADJACENT: 0x0d, WALL_LEFT: 0x0e, WALL_RIGHT: 0x0f,
   HIT_LASER: 0x11, HIT_BULLET: 0x12, HIT_OTHER: 0x13, HIT_FIRE: 0x14, HIT_EXPLOSION: 0x15, HIT_RECOVER: 0x16,
   BURNING: 0x17, DYING: 0x18, DYING_BURNT: 0x19, DEAD: 0x1a, DEAD_BURNT: 0x1b,
-  AIM: 0x1c, SCRIPT_WAIT: 0x1d, FOLLOW: 0x1e, FLEE: 0x1f, PURSUE: 0x20, TERRAIN_DEATH: 0x21, WARN: 0x22,
-  SLIDE: 0x27, WAIT_AGENT: 0x28, PATROL: 0x29, WAIT: 0x2a, FIRING: 0x2b, CONVERTED: 0x2c,
+  AIM: 0x1c, WANDER: 0x1d, FOLLOW: 0x1e, FLEE: 0x1f, PURSUE: 0x20, TERRAIN_DEATH: 0x21, WARN: 0x22,
+  SLIDE: 0x27, WAIT_AGENT: 0x28, PLATFORM: 0x29, WAIT: 0x2a, FIRING: 0x2b, CONVERTED: 0x2c,
 });
 
 /** Eventos de daño acumulados por OR (SPEC §6.2). */
@@ -25,9 +25,40 @@ const WALKING = new Set([2, 3, 4, 5, 0x0e, 0x0f, 0x1d, 0x1e, 0x1f, 0x20, 0x25, 0
 const DEAD = new Set([S.DEAD, S.DEAD_BURNT]);
 const ORDERABLE = new Set([0, 2, 3, 4, 5, 0x0e, 0x0f, 0x1c, 0x1f, 0x26, 0x2c]);
 
-/** Barra de comportamiento: nivel actual frente a un punto neutro (SPEC §4, §7.2). */
+/**
+ * Ritmo de la recuperación (`0x2f990`) según el implante (0..3): cada cuántos ciclos el valor
+ * real se mueve 1 y cada cuántos se mueve 1 el punto neutro.
+ */
+const RECOVERY = [{ actual: 4, neutral: 0x14 }, { actual: 8, neutral: 0x1c }, { actual: 0x10, neutral: 0x28 }, { actual: 0x28, neutral: 0x80 }];
+
+/**
+ * Barra de comportamiento (SPEC §4, §7.2, §9.2): cuatro bytes del original. El efecto usa el
+ * nivel pedido frente al punto neutro; el valor real sigue al nivel poco a poco y, cuando lo
+ * alcanza, ambos vuelven hacia el neutro, que a su vez se desplaza hacia lo pedido
+ * (dependencia). Un valor forzado distinto de 0 fija nivel = forzado + 0x80 y neutro = forzado.
+ */
 export class Bar {
-  constructor(neutral = 128, level = 128) { this.neutral = neutral; this.level = level; }
+  constructor(neutral = 128, level = 128, actual = 128, override = 0) {
+    this.neutral = neutral;      // +0x48
+    this.level = level;          // +0x49: lo que pide el jugador
+    this.actual = actual;        // +0x47
+    this.override = override;    // +0x4a
+  }
+
+  /** Un ciclo de recuperación (`0x2f990`) con el contador del agente y el nivel de su implante. */
+  recover(counter, implant) {
+    if (this.override) { this.level = (this.override + 0x80) & 0xff; this.neutral = this.override; return; }
+    const rate = RECOVERY[implant] ?? RECOVERY[0];
+    if (counter % rate.neutral === 0) {
+      const toward = this.neutral === this.level && this.neutral === this.actual ? 0x80 : this.level;
+      this.neutral += Math.sign(toward - this.neutral);
+    }
+    if (counter % rate.actual === 0) {
+      const step = Math.sign(this.level - this.actual);
+      if (step) this.actual += step;
+      else { const back = Math.sign(this.neutral - this.level); this.actual += back; this.level += back; }
+    }
+  }
   /** v·(nivel−neutro)/(255−neutro), o /neutro por debajo; 0 en el punto neutro. */
   scale(v) {
     const d = this.level - this.neutral;
@@ -73,6 +104,7 @@ export class Person extends Entity {
     this.wanted = false;                      // +0x1d & 2 (buscado por la policía)
     this.aggressive = false;                  // +0x1a & 0x40
     this.canDrop = false;                     // +0x0b & 2
+    this.wanders = props.wanders ?? false;    // +0x0b & 0x10: al acabar una acción vuelve a pasear (0x1D)
     this.speed = 0;
     this.lastStepDelta = 0;
     this.regenCounter = 0;                    // +0x53
@@ -109,7 +141,7 @@ export class Person extends Entity {
   finishAction() {
     if (this.nextState === this.state || this.nextState === 0) {
       if (this.following) this.nextState = S.FOLLOW;
-      else if (this.objectiveMarked && this.scriptControlled) this.nextState = S.SCRIPT_WAIT;
+      else if (this.wanders) this.nextState = S.WANDER;
       else this.nextState = this.scenarioStart ? S.SCENARIO : S.IDLE;
     }
     this.state = this.nextState;

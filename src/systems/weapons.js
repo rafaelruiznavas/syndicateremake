@@ -67,7 +67,10 @@ export class Weapons {
   emit(world) {
     for (const p of world.people) {
       const it = p.equipped;
-      if (!it || p.dead || p.fireWindow === 0 || it.ammo < 0) continue;
+      if (!it || p.dead || it.ammo < 0) continue;
+      // El PERSUADERTRON actúa mientras está equipado y sin disparar (`0x3a970`, arma 1).
+      if (it.weapon === W.PERSUADERTRON) { if (p.fireWindow === 0) world.persuasion.pulse(world, p); continue; }
+      if (p.fireWindow === 0) continue;
       const traces = BULLET_TRACES[it.weapon];
       if (FIRE_SOUND[it.weapon]) world.events.emit('sound', { id: FIRE_SOUND[it.weapon], at: p });
       if (traces) {
@@ -79,8 +82,6 @@ export class Weapons {
           this.trace(world, p, (p.facing + spread + jitter()) & 255, p.pitch, this.range(it.weapon) >> 7);
           if (it.weapon !== W.SHOTGUN) it.ammo--;
         }
-      } else if (it.weapon === W.PERSUADERTRON) {
-        world.persuasion.pulse(world, p);
       }
     }
   }

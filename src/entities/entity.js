@@ -16,8 +16,16 @@ export class Entity {
   update() {}
 }
 
-/** Objetos estáticos del escenario (clase 5): árboles, farolas, puertas… */
-export class StaticObject extends Entity {}
+/** Objetos estáticos del escenario (clase 5): árboles, farolas, puertas… (SPEC §5.6) */
+export class StaticObject extends Entity {
+  constructor(props) {
+    super(props);
+    this.heading = props.heading ?? 0;      // +0x1a: orientación (variante de la animación)
+    this.baseAnim = props.baseAnim ?? -1;   // +0x0e: primera animación del objeto
+    this.anim = props.anim;                 // +0x12: animación actual
+    this.timer = 0;                         // +0x14
+  }
+}
 
 /** Objetos que se pueden llevar (clase 4): armas y equipo. */
 export class Item extends Entity {

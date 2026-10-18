@@ -20,6 +20,7 @@ import { EnemyAI } from '../systems/enemy-ai.js';
 import { Objectives } from '../systems/objectives.js';
 import { Driving, VehicleUpdate } from '../systems/vehicles.js';
 import { Detours } from '../systems/detour.js';
+import { StaticUpdate } from '../systems/statics.js';
 
 const SQUAD_SIZE = 4;
 const GROUP_SLOTS = 8;
@@ -52,6 +53,7 @@ export class World {
     this.driving = new Driving(this);
     this.vehicleUpdate = new VehicleUpdate(this);
     this.detours = new Detours(this);
+    this.staticUpdate = new StaticUpdate(this);
     this.entities = []; this.people = []; this.statics = []; this.items = []; this.vehicles = []; this.effects = [];
     this.selection = new Set();
     this.cheats = { invulnerable: false };    // [DIS] trucos del remake (?cheat en la URL)
@@ -76,8 +78,9 @@ export class World {
       const person = new Person({
         x: p.x, y: p.y, z: p.z, frame: p.frame, hidden: p.hidden, kind: p.kind, health: p.health,
         facing: p.facing, animSet: p.animSet, mods: p.mods, baseSpeed: p.speed, group: Math.floor(p.index / GROUP_SLOTS),
-        bars: { adrenaline: new Bar(raw[0x48], raw[0x49]), intelligence: new Bar(raw[0x4c], raw[0x4d]), perception: new Bar(raw[0x50], raw[0x51]) },
+        bars: { adrenaline: new Bar(raw[0x48], raw[0x49], raw[0x47], raw[0x4a]), intelligence: new Bar(raw[0x4c], raw[0x4d], raw[0x4b], raw[0x4e]), perception: new Bar(raw[0x50], raw[0x51], raw[0x4f], raw[0x52]) },
         state: p.state, scenarioStart: p.scenarioStart, scenarioCurrent: p.scenarioCurrent,
+        wanders: (raw[0x0b] & 0x10) !== 0,
       });
       person.levelIndex = p.index;
       person.state = person.scenarioStart ? S.SCENARIO : S.IDLE;   // los guiones arrancan desde su paso actual
@@ -90,11 +93,29 @@ export class World {
       } else if (p.state === S.WALK_SCENARIO) {
         person.state = person.nextState = S.WALK_SCENARIO;
         person.destination = { x: u16(0x2e), y: u16(0x30), z: u16(0x32) };
+      } else if (p.state === S.WANDER || p.state === S.PLATFORM) {
+        person.state = p.state;                      // paseantes (`0x33230`) y esperas en el andén
+        person.timer = u16(0x42);
+      } else if (p.state === S.WALL_LEFT || p.state === S.WALL_RIGHT) {
+        // Desvío en curso (§7.5): pared `+0x5a`, intentos `+0x59`, distancia inicial `+0x1e`.
+        person.state = p.state;
+        person.nextState = raw[0x58];
+        person.timer = u16(0x42);
+        person.speed = raw[0x54];
+        person.destination = { x: u16(0x2e), y: u16(0x30), z: u16(0x32) };
+        person.detour = { heading: raw[0x5a], tries: raw[0x59], startDist: u16(0x1e) };
       }
       this.people.push(person);
       this.byRef.people[p.index] = person;
     }
-    for (const s of level.statics) { const o = new StaticObject({ x: s.x, y: s.y, z: s.z, class: s.class, subtype: s.subtype, frame: s.frame, hidden: s.hidden }); this.statics.push(o); this.byRef.statics[s.index] = o; }
+    for (const s of level.statics) {
+      const raw = hexBytes(s.raw);
+      const o = new StaticObject({
+        x: s.x, y: s.y, z: s.z, class: s.class, subtype: s.subtype, frame: s.frame, hidden: s.hidden,
+        heading: raw[0x1a], baseAnim: raw[0x0e] | (raw[0x0f] << 8), anim: raw[0x12] | (raw[0x13] << 8),
+      });
+      this.statics.push(o); this.byRef.statics[s.index] = o;
+    }
     for (const v of level.vehicles) {
       const raw = hexBytes(v.raw), u16 = (o) => raw[o] | (raw[o + 1] << 8), s16 = (o) => (u16(o) << 16) >> 16;
       const o = new Vehicle({
@@ -329,15 +350,17 @@ export class World {
   update(ticksPerCycle = 7) {
     this.cycles++;
     this.detours.newCycle();
+    for (const e of this.entities) { e.prevX = e.x; e.prevY = e.y; e.prevZ = e.z; }   // para interpolar el dibujo
     if (this.objectives.running) this.enemyAI.update();
     this.perception.update();
     for (const p of this.people) {
       this.states.update(p);
       if (p.pickup && !p.dead) this.#tryPickup(p);
     }
-    this.#updateVehicles();
     this.weapons.emit(this);
     this.#updateEffects();
+    for (const s of this.statics) this.staticUpdate.update(s);   // `0x2b940`
+    this.#updateVehicles();
     this.perception.collect();
     this.objectives.update(ticksPerCycle);
   }

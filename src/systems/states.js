@@ -2,21 +2,29 @@
 // Cada manejador corresponde a un estado documentado; los marcados [INF]/[DIS] en la
 // SPEC siguen una interpretación provisional.
 
-import { S } from '../entities/person.js';
+import { S, Person } from '../entities/person.js';
 import { Vehicle } from '../entities/entity.js';
 import { walkStep, tryStep, effectiveSpeed } from './movement.js';
 import { Detours, WALL_DELTA, DETOUR_TIMER } from './detour.js';
 import { Driving } from './vehicles.js';
 import { runScenarioStep } from './scenario.js';
 import { lineOfFire } from './perception.js';
-import { directionTo } from '../core/angles.js';
+import { directionTo, DIR_X, DIR_Y } from '../core/angles.js';
 
-const FOLLOW_DISTANCE = 0x180;          // [DIS] distancia a la que se queda un seguidor
-const FLEE_DISTANCE = 0x800;            // [DIS] distancia de huida
+const FLEE_SPEED = 0x28, FLEE_RANGE = 0xa00, FLEE_DETOUR = 0x32;   // `0x33660`
+const FOLLOW_TURN = 0x10, FOLLOW_GAP = 0xc0, FOLLOW_GAP_MIN = 0x10;  // `0x33370`
+const FOLLOW_DETOUR_OFF = 0x14, FOLLOW_DETOUR_ON = 500, FOLLOW_ON_COURSE = 0x0f;
 const ATTACK_MIN = 80, APPROACH_MIN = 300;   // estado 0x20 (GH: `0x337b0`)
 const VEHICLE_REACH = 0x80;             // `0x321c0`: a un vehículo se llega a < 0x80
 const GROUND_NO_EXIT = 2;               // `0x32560`, orden 0x19: no se baja sobre esta clase
 const WATCH_COLS = 5, WATCH_ROWS = 7;   // estado 0x28 (`0x33dc0`)
+const WANDER_SPEED = 0x10, WANDER_DETOUR = 10;          // `0x33230`
+/** Casillas de borde de andén (clase 13) donde el paseante se para a esperar el tren. */
+const PLATFORM_EDGE = Object.freeze({ A: 0x80, B: 0x81 });
+const PLATFORM_WAIT = 100;                                // `0x33230` → 0x29, `+0x42`
+const WAGON_SUBTYPES = new Set([0x09, 0x0a]);             // vagones intactos (`0x33e60`)
+/** Destino guardado de los paseantes: no fijan ninguno, así que el desvío corto mide hasta (0, 0). */
+const NO_DESTINATION = Object.freeze({ x: 0, y: 0, z: 0 });
 
 export class PersonStates {
   constructor(world) { this.world = world; }
@@ -47,14 +55,20 @@ export class PersonStates {
     if (this.world.map.classAt(p.x, p.y, p.z - 1) === 10) { p.health = -1; p.state = S.TERRAIN_DEATH; }
   }
 
-  /** Regeneración de salud de los agentes según el pecho (SPEC §6.3, `0x2fae0`). */
+  /**
+   * Regeneración de los agentes (SPEC §6.3, §9.2, `0x2fae0`): salud según el pecho y
+   * recuperación de las barras con el corazón (adrenalina), el cerebro (inteligencia) y los
+   * ojos (percepción).
+   */
   regenerate(p) {
     p.regenCounter = (p.regenCounter + 1) & 0xff;
     if (p.adrenaline.level < 10) p.regenCounter &= 7;
-    if (p.health < 0 || p.health >= 16) return;
     const lvl = (p.mods & 0x60) >> 5;
     const mask = [0, 0x7f, 0x3f, 0x1f][lvl];
-    if (lvl && (p.regenCounter & mask) === 0) p.health++;
+    if (p.health >= 0 && p.health < 16 && lvl && (p.regenCounter & mask) === 0) p.health++;
+    p.adrenaline.recover(p.regenCounter, (p.mods & 0x180) >> 7);
+    p.intelligence.recover(p.regenCounter, (p.mods >> 9) & 3);
+    p.perception.recover(p.regenCounter, (p.mods >> 11) & 3);
   }
 
   // ---------- manejadores ----------
@@ -263,24 +277,65 @@ export class PersonStates {
   }
 
   /** [DIS] Seguir al persuasor manteniéndose cerca. */
+  /**
+   * Seguir al líder (`0x33370`): si va en un vehículo, subir a él; si el líder sigue a otro,
+   * seguir a ese; copiar sus barras; ir hacia su destino girando como mucho 0x10 por ciclo y
+   * esquivando a los de su grupo que estén donde va a pisar (`0x153a0`); si choca, desvío.
+   */
   follow(p) {
-    const leader = p.following;
-    if (!leader || leader.dead) { p.following = null; p.finishAction(); return; }
-    if (Math.hypot(leader.x - p.x, leader.y - p.y) > FOLLOW_DISTANCE) this.stepTowards(p, leader.x, leader.y);
+    const w = this.world;
+    let leader = p.following;
+    if (!leader || leader.removed) { p.following = null; p.nextState = S.FOLLOW; p.finishAction(); return; }
+    if (leader.dead) { p.following = null; p.finishAction(); return; }
+    if (leader.vehicle && !p.vehicle) { p.target = leader.vehicle; p.state = S.GOTO_VEHICLE; p.nextState = S.BOARD; return; }
+    if (leader.following) { p.following = leader.following; return; }
+    for (const bar of ['adrenaline', 'perception', 'intelligence']) p[bar].level = leader[bar].level;
+    p.speed = effectiveSpeed(p, w.carriedWeight(p));
+    const dest = leader.destination ?? leader;
+    p.destination = { x: dest.x, y: dest.y, z: dest.z ?? leader.z };
+    const gap = Math.max(FOLLOW_GAP_MIN, leader.perception.scale(FOLLOW_GAP) + 0x40);
+    const ahead = { x: p.x + ((DIR_X[p.facing] * p.speed) >> 8), y: p.y + ((DIR_Y[p.facing] * p.speed) >> 8) };
+    const mate = this.groupMateAt(p, ahead, gap);
+    const wanted = mate ? (directionTo(p.x - mate.x, p.y - mate.y)) : directionTo(p.destination.x - p.x, p.destination.y - p.y);
+    p.facing = turnTowards(p.facing, wanted, FOLLOW_TURN);
+    if (!tryStep(p, p.facing, p.speed, w.terrain)) {
+      const off = ((directionTo(p.destination.x - p.x, p.destination.y - p.y) - p.facing + 128) & 255) - 128;
+      w.detours.start(p, Math.abs(off) > FOLLOW_ON_COURSE ? FOLLOW_DETOUR_OFF : FOLLOW_DETOUR_ON);
+      if (p.state !== S.FOLLOW) p.nextState = S.FOLLOW;
+    }
+    w.grid.move(p);
     this.events(p);
     this.advance(p);
   }
 
-  /** [DIS] Huir alejándose del blanco. */
+  /** Persona de su grupo (el líder, otro seguidor o alguien que la sigue) en la caja `size` alrededor de `at`. */
+  groupMateAt(p, at, size) {
+    const h = size >> 1;
+    for (const e of this.world.grid.query(at.x - h - 0x100, at.y - h - 0x100, at.x + h + 0x100, at.y + h + 0x100)) {
+      if (e === p || !(e instanceof Person) || e.hidden || e.dead) continue;
+      if (Math.abs(e.x - at.x) > size || Math.abs(e.y - at.y) > size || Math.abs(e.z - p.z) > 0x80) continue;
+      if (e === p.following || e.following === p.following || e.following === p) return e;
+    }
+    return null;
+  }
+
+  /**
+   * Huir (`0x33660`): de espaldas a `+0x2a` a velocidad fija 0x28; si choca, desvío corto
+   * (`0x306d0`, 50 ciclos); termina cuando la distancia supera percepción(0xA00).
+   */
   flee(p) {
-    const t = p.target;
-    if (!t || Math.hypot(t.x - p.x, t.y - p.y) > FLEE_DISTANCE) { p.target = null; p.finishAction(); return; }
-    const dir = (directionTo(p.x - t.x, p.y - t.y)) & 255;
-    p.facing = dir;
-    if (!tryStep(p, dir, effectiveSpeed(p), this.world.terrain)) tryStep(p, (dir + 64) & 255, effectiveSpeed(p), this.world.terrain);
-    this.world.grid.move(p);
-    this.events(p);
+    const w = this.world, t = p.target;
+    if (!t || t.removed) { p.target = null; p.finishAction(); return; }
+    p.facing = (directionTo(t.x - p.x, t.y - p.y) - 0x80) & 255;
+    p.speed = FLEE_SPEED;
+    if (!tryStep(p, p.facing, FLEE_SPEED, w.terrain)) {
+      const away = { x: p.x + DIR_X[p.facing] * 8, y: p.y + DIR_Y[p.facing] * 8, z: p.z };
+      w.detours.quick(p, FLEE_DETOUR, away);
+    }
+    w.grid.move(p);
+    if (Math.hypot(t.x - p.x, t.y - p.y) > p.perception.scale(FLEE_RANGE)) { p.target = null; p.finishAction(); }
     this.advance(p);
+    this.events(p);
   }
 
   /** Perseguir y atacar (GH `0x337b0`): dispara a ≥ 80 si está a tiro; se acerca si ≥ 300. */
@@ -310,7 +365,46 @@ export class PersonStates {
   }
 
   wait(p) { if (--p.timer <= 0) p.finishAction(); this.events(p); this.advance(p); }
-  scriptWait(p) { this.advance(p); this.events(p); }
+
+  /**
+   * Pasear (`0x33230`): paso de 0x10 en la orientación; si choca, desvío corto de 10 ciclos.
+   * Sobre un borde de andén mirando hacia la vía se para a esperar el tren (0x29). Cada ciclo
+   * la orientación varía −1..+1 y la persona queda marcada como paseante.
+   */
+  wander(p) {
+    const w = this.world;
+    p.speed = WANDER_SPEED;
+    if (!tryStep(p, p.facing, WANDER_SPEED, w.terrain)) w.detours.quick(p, WANDER_DETOUR, { ...NO_DESTINATION, z: p.z });
+    w.grid.move(p);
+    const tile = w.map.tileUnder(p.x, p.y, p.z);
+    if (tile === PLATFORM_EDGE.A && p.facing >= 0x80) this.#toPlatform(p, 0xc0);
+    else if (tile === PLATFORM_EDGE.B && p.facing >= 0x40 && p.facing <= 0xc0) this.#toPlatform(p, 0x80);
+    p.facing = (p.facing + w.rng.int(3) - 1) & 255;
+    p.wanders = true;
+    this.advance(p);
+    this.events(p);
+  }
+
+  #toPlatform(p, facing) { p.facing = facing; p.state = S.PLATFORM; p.timer = PLATFORM_WAIT; }
+
+  /**
+   * Esperar en el andén (`0x33e60`): si en la casilla de delante hay un vagón cuyo tren no
+   * tiene conductor o está parado (conductor en 0x2A), sube a él; a los 100 ciclos da media
+   * vuelta y vuelve a pasear.
+   */
+  platform(p) {
+    const w = this.world;
+    p.speed = 0;
+    const tx = (p.x + DIR_X[p.facing]) >> 8, ty = (p.y + DIR_Y[p.facing]) >> 8;
+    for (const e of w.grid.query(tx << 8, ty << 8, (tx << 8) + 0xff, (ty << 8) + 0xff)) {
+      if (!(e instanceof Vehicle) || !WAGON_SUBTYPES.has(e.subtype) || (e.x >> 8) !== tx || (e.y >> 8) !== ty) continue;
+      let head = e;
+      while (head.link) head = head.link;
+      if (!head.driver || head.driver.state === S.WAIT) { p.target = e; p.nextState = S.BOARD; p.finishAction(); }
+    }
+    if (p.timer-- === 0) { p.facing = (p.facing + 0x80) & 255; p.finishAction(); }
+    this.events(p);
+  }
   converted(p) { if (this.advance(p)) p.state = S.FOLLOW; }
 
   stepTowards(p, x, y) {
@@ -333,8 +427,14 @@ export class PersonStates {
       [S.BURNING]: this.burning, [S.DYING]: this.dying, [S.DYING_BURNT]: this.dying,
       [S.TERRAIN_DEATH]: this.terrainDeath, [S.AIM]: this.aim, [S.FIRING]: this.firing,
       [S.FOLLOW]: this.follow, [S.FLEE]: this.flee, [S.PURSUE]: this.pursue, [S.WARN]: this.warn,
-      [S.WAIT]: this.wait, [S.SCRIPT_WAIT]: this.scriptWait, [S.CONVERTED]: this.converted,
+      [S.WAIT]: this.wait, [S.WANDER]: this.wander, [S.PLATFORM]: this.platform, [S.CONVERTED]: this.converted,
     };
   }
 }
 
+
+/** Gira `from` hacia `to` (0..255) como mucho `max` unidades. */
+export function turnTowards(from, to, max) {
+  const d = ((to - from + 128) & 255) - 128;
+  return (from + Math.max(-max, Math.min(max, d))) & 255;
+}

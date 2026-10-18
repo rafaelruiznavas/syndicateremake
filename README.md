@@ -29,7 +29,7 @@ Trucos: añade `cheat` a la URL (http://localhost:8090/?cheat o ?mission=N&cheat
 
 Sonido: efectos y voces originales (VOC); la música son los MIDI originales con un sintetizador propio, porque emular el chip OPL está fuera del alcance del proyecto.
 
-Opciones (barra superior, se recuerdan en el navegador): idioma —inglés, francés e italiano con los textos originales, y español, traducción propia del remake (menús, briefings de las 50 misiones, objetos, territorios e intro)— y volumen de la música y de los efectos.
+Opciones (barra superior, se recuerdan en el navegador): gráficos —«mejorados» (por defecto: 1280×720 en 16:9 con una vista de misión más ancha, pixel art suavizado, movimiento fluido y efectos de neón, luces y HUD holográfico) u «originales» (píxeles tal cual)—; idioma —inglés, francés e italiano con los textos originales, y español, traducción propia del remake (menús, briefings de las 50 misiones, objetos, territorios e intro)— y volumen de la música y de los efectos.
 
 Pantallas de gestión (gráficos, fuentes y animaciones originales):
 - **Título:** clic o tecla. **MAIN MENU:** clic o F1–F5.

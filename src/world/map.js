@@ -24,5 +24,9 @@ export class TileMap {
     const tile = this.tileAt(tx, ty, tz);
     return tile ? this.classes[tile] : 0;
   }
+  /** Tile bajo los pies (nivel de z − 1), con el eje Y envuelto como `classAt`. */
+  tileUnder(x, y, z) {
+    return this.tileAt(x >> 8, (((y % 0x6000) + 0x6000) % 0x6000) >> 8, (z - 1) >> 7);
+  }
   static worldSize() { return { x: MAP_WIDTH * TILE, y: MAP_HEIGHT * TILE, z: MAP_DEPTH * LEVEL }; }
 }

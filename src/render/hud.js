@@ -20,6 +20,8 @@ export const BARS = [
   { name: 'intelligence', dy: 0x4c, light: 13, dark: 5 },
 ];
 const BAR_X = 4, BAR_W = 55, BAR_H = 10;
+/** Zonas de clic de las barras (`0x2d610`): filas de 14 px desde y+0x2E, x+4..x+0x3B. */
+const BAR_HIT = { y: 0x2e, h: 0x0e, w: 0x38 };
 const MESSAGE = { x: 0, y: 190, chars: 16 };
 const BLIP_SIZE = 3, BLIP_SIZE_BORDER = 4;
 
@@ -45,17 +47,16 @@ export class Hud {
     for (let i = 0; i < 4; i++) {
       const b = AGENT_BOXES[i];
       if (x >= b.x && x < b.x + BOX_W && y >= b.y && y < b.y + BOX_H) return { type: 'agent', index: i };
-      for (const bar of BARS) {
-        const bx = b.x + BAR_X, by = b.y + bar.dy;
-        if (x >= bx && x < bx + BAR_W && y >= by && y < by + BAR_H) {
-          return { type: 'bar', index: i, bar: bar.name, level: Math.max(0, Math.min(255, Math.round(((x - bx) * 255) / (BAR_W - 1)))) };
-        }
+      const bx = b.x + BAR_X, row = Math.floor((y - b.y - BAR_HIT.y) / BAR_HIT.h);
+      if (x >= bx && x < bx + BAR_HIT.w && row >= 0 && row < BARS.length) {
+        return { type: 'bar', index: i, bar: BARS[row].name, level: Math.max(0, Math.min(255, Math.trunc(((x - bx) * 0x100) / 0x37))) };
       }
     }
     if (y >= GROUP_BAR.y && y < GROUP_BAR.y + GROUP_BAR.h) return { type: 'group' };
     if (y >= INVENTORY.y && y < INVENTORY.y + INVENTORY.rows * INVENTORY.h) {
       return { type: 'slot', index: Math.floor((y - INVENTORY.y) / INVENTORY.h) * INVENTORY.cols + Math.floor(x / INVENTORY.w) };
     }
+    if (x < SCANNER.x + SCANNER.w && y >= SCANNER.y && y < SCANNER.y + SCANNER.h) return { type: 'scanner', x: x - SCANNER.x, y: y - SCANNER.y };
     return null;
   }
 
@@ -81,10 +82,15 @@ export class Hud {
       const v = agent[bar.name];
       if (!v) continue;
       const y = b.y + bar.dy, x = b.x + BAR_X;
-      const n = Math.trunc((v.neutral * BAR_W) / 255), l = Math.trunc((v.level * BAR_W) / 255);
+      // `0x2ee30`: del neutro al nivel pedido en claro y del neutro al valor real en oscuro;
+      // primero el tramo más largo y encima el otro. Marca del neutro en color 12.
+      const px = (u) => Math.trunc((u * BAR_W) / 255);
+      const n = px(v.neutral), l = px(v.level), a = px(v.actual ?? v.level);
+      const span = (to, color) => this.rect(x + Math.min(n, to), y, Math.abs(to - n), BAR_H, color);
       this.rect(x, y, BAR_W, BAR_H, 0);
-      this.rect(x + Math.min(n, l), y, Math.abs(l - n), BAR_H, l >= n ? bar.light : bar.dark);
-      this.rect(x + n, y, 1, BAR_H - 1, 12);
+      if ((n < l && a < l) || (l < n && l < a)) { span(l, bar.light); span(a, bar.dark); }
+      else { span(a, bar.dark); span(l, bar.light); }
+      this.rect(x + n, y, 1, BAR_H, 12);
     }
   }
 

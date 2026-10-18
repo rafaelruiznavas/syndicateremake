@@ -7,8 +7,12 @@ import { Vga } from '../ui/vga.js';
 import { MenuGfx } from '../ui/menu-gfx.js';
 import { AudioEngine } from '../audio/audio.js';
 import { MusicPlayer } from '../audio/music.js';
+import { Effects } from '../render/effects.js';
 
 const SAVE_KEY = 'syndicate-remake.save';
+/** Lienzo de los gráficos mejorados [DIS] (SPEC §15.1): 16:9, con 400 filas lógicas de alto. */
+export const ENHANCED_CANVAS = Object.freeze({ width: 1280, height: 720 });
+const LOGICAL_HEIGHT = 400, MENU_WIDTH = 640;
 
 export class Game {
   constructor({ assets, ctx, input, loop }) {
@@ -21,10 +25,50 @@ export class Game {
     this.factories = {};
     this.audio = new AudioEngine(assets.base);
     this.cheats = { invulnerable: false };   // [DIS] trucos del remake; los cambia src/ui/cheats.js
+    this.graphics = 'original';
+    this.effects = new Effects();
     this.music = new MusicPlayer(this.audio, assets.base);
     // El audio del navegador solo arranca tras un gesto del usuario.
     input.onClick((e) => { this.audio.unlock(); this.scene?.onClick?.(e); });
     input.onKey((code, key) => { this.audio.unlock(); return this.scene?.onKey?.(code, key) ?? false; });
+  }
+
+  /**
+   * Modo de gráficos [DIS] (SPEC §15.1): 'original' (640×400, píxeles nítidos) o 'enhanced'
+   * (lienzo de 1280×720, atlas ampliados con Scale2x, suavizado y efectos). En 16:9 el espacio
+   * lógico conserva sus 400 filas (escala 1,8) y gana anchura: la misión ve más ciudad y las
+   * pantallas de gestión, de 640 de ancho, se centran con bandas a los lados.
+   */
+  setGraphicsMode(mode) {
+    this.graphics = mode === 'enhanced' ? 'enhanced' : 'original';
+    const c = this.ctx.canvas;
+    const w = this.enhanced ? ENHANCED_CANVAS.width : MENU_WIDTH, h = this.enhanced ? ENHANCED_CANVAS.height : LOGICAL_HEIGHT;
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    if (c.style) {
+      c.style.imageRendering = this.enhanced ? 'auto' : 'pixelated';
+      c.style.setProperty?.('--aspect', String(w / h));
+    }
+    this.vga.smooth = this.enhanced;
+    this.render();
+  }
+  get enhanced() { return this.graphics === 'enhanced'; }
+  /** Escala de los atlas (Scale2x): ×2 en el modo mejorado. */
+  get graphicsScale() { return this.enhanced ? 2 : 1; }
+  /** Píxeles reales por píxel lógico. */
+  get pixelScale() { return this.enhanced ? ENHANCED_CANVAS.height / LOGICAL_HEIGHT : 1; }
+  /** Anchura lógica del lienzo: 640 en el modo original, ≈711 en 16:9. */
+  get screenWidth() { return this.enhanced ? ENHANCED_CANVAS.width / this.pixelScale : MENU_WIDTH; }
+  /** Desplazamiento lógico de la escena activa: las de 640 de ancho se centran. */
+  get sceneOffset() { return this.scene?.wide ? 0 : (this.screenWidth - MENU_WIDTH) / 2; }
+
+  /** Transformación de la escena activa y espacio lógico del ratón. */
+  #frame() {
+    const k = this.pixelScale, ox = this.sceneOffset, ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (ox > 0) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); }
+    ctx.setTransform(k, 0, 0, k, ox * k, 0);
+    ctx.imageSmoothingEnabled = this.enhanced;
+    if (this.input) this.input.space = { width: this.screenWidth, height: LOGICAL_HEIGHT, offsetX: ox };
   }
 
   /** Datos de catálogo que necesita la campaña. */
@@ -40,8 +84,7 @@ export class Game {
     const scene = this.factories[name](this, args);
     await scene.enter?.();
     this.scene = scene;
-    scene.render?.();                         // la GUI necesita un fotograma para aceptar clics
-
+    this.render();                            // la GUI necesita un fotograma para aceptar clics
   }
 
   /** CRYO → ACCEPT: arranca la misión del briefing con el equipo elegido. */
@@ -95,5 +138,10 @@ export class Game {
     this.scene?.update?.();
   }
 
-  render() { this.scene?.render?.(); }
+  render(alpha = 0) {
+    if (!this.scene) return;
+    this.#frame();
+    this.scene.render?.(alpha);
+    if (this.enhanced) { this.effects.tick(); this.effects.post(this.ctx); }
+  }
 }
